@@ -85,20 +85,36 @@ def next_stacks(X_v, X_h, inp_dim, name, filter_size = 3, hstack = 'hstack'):
             mask_type=('vstack', N_CHANNELS)
         )
 
-    X_h_input = T.concatenate([X_h, X_v_next[:,:,:-1,:]], axis = 1)
+    X_v2h = lib.ops.conv2d.Conv2D(
+            name + ".v2h", 
+            input_dim=DIM_PIX, 
+            output_dim=DIM_PIX, 
+            filter_size=(1,1), 
+            inputs=X_v_next[:,:,:-1,:]
+        )
+
+    X_h_input = T.concatenate([X_h, X_v2h], axis = 1)
 
     X_h_next = T.nnet.relu(
         lib.ops.conv2d.Conv2D(
             name + '.hstack', 
-            input_dim=inp_dim + DIM_PIX, 
-            output_dim=DIM_PIX, 
-            filter_size=(1,filter_size), 
+            input_dim= DIM_PIX + inp_dim, 
+            output_dim= DIM_PIX, 
+            filter_size= (1,filter_size), 
             inputs= X_h_input, 
             mask_type=(hstack, N_CHANNELS)
             )
         )
 
-    return T.nnet.relu(X_v_next[:, :, 1:, :]), T.nnet.relu(X_h_next)
+    X_h_next = lib.ops.conv2d.Conv2D(
+            name + '.h2h', 
+            input_dim=DIM_PIX, 
+            output_dim=DIM_PIX, 
+            filter_size=(1,1), 
+            inputs= X_h_next
+            )
+
+    return T.nnet.relu(X_v_next[:, :, 1:, :]), X_h_next
 
 
 
