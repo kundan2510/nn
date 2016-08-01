@@ -46,8 +46,8 @@ DIM_2 = 32
 DIM_3 = 64
 DIM_4 = 64
 DIM_PIX = 32
-PIXEL_CNN_FILTER_SIZE = 5
-PIXEL_CNN_LAYERS = 6
+PIXEL_CNN_FILTER_SIZE = 3
+PIXEL_CNN_LAYERS = 10
 
 LATENT_DIM = 64
 ALPHA_ITERS = 10000
@@ -60,7 +60,7 @@ HEIGHT = 28
 WIDTH = 28
 
 TEST_BATCH_SIZE = 100
-TIMES = ('iters', 10*500, 2000*500, 10*500, 200*500, 2*ALPHA_ITERS)
+TIMES = ('iters', 1000, 2000*500, 1000, 200*500, 2*ALPHA_ITERS)
 
 lib.print_model_settings(locals().copy())
 
@@ -70,6 +70,37 @@ def PixCNNGate(x):
     a = x[:,::2]
     b = x[:,1::2]
     return T.tanh(a) * T.nnet.sigmoid(b)
+
+def next_stacks(X_v, X_h, inp_dim, name, filter_size = 3, hstack = 'hstack'):
+    zero_pad = T.zeros((X_v.shape[0], X_v.shape[1], 1, X_v.shape[3]))
+
+    X_v_padded = T.concatenate([zero_pad, X_v], axis = 2)
+
+    X_v_next = lib.ops.conv2d.Conv2D(
+            name + ".vstack", 
+            input_dim=inp_dim, 
+            output_dim=DIM_PIX, 
+            filter_size=filter_size, 
+            inputs=X_v_padded, 
+            mask_type=('vstack', N_CHANNELS)
+        )
+
+    X_h_input = T.concatenate([X_h, X_v_next[:,:,:-1,:]], axis = 1)
+
+    X_h_next = T.nnet.relu(
+        lib.ops.conv2d.Conv2D(
+            name + '.hstack', 
+            input_dim=inp_dim + DIM_PIX, 
+            output_dim=DIM_PIX, 
+            filter_size=(1,filter_size), 
+            inputs= X_h_input, 
+            mask_type=(hstack, N_CHANNELS)
+            )
+        )
+
+    return T.nnet.relu(X_v_next[:, :, 1:, :]), T.nnet.relu(X_h_next)
+
+
 
 def Encoder(inputs):
 
@@ -100,7 +131,7 @@ def Decoder(latents, images):
     output = latents
 
     output = lib.ops.linear.Linear('Dec.Inp', input_dim=LATENT_DIM, output_dim=4*4*DIM_4, inputs=output)
-    output = output.reshape((output.shape[0], DIM_4, 4, 4))
+    output = T.nnet.relu(output.reshape((output.shape[0], DIM_4, 4, 4)))
 
     output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.1', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
     output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
@@ -132,23 +163,77 @@ def Decoder(latents, images):
     output = T.concatenate([masked_images, output], axis=1)
 
     for i in xrange(PIXEL_CNN_LAYERS):
-        inp_dim = (2*DIM_1 if i==0 else DIM_PIX)
-        output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.Pix'+str(i), input_dim=inp_dim, output_dim=2*DIM_1, filter_size=PIXEL_CNN_FILTER_SIZE, inputs=output, mask_type=('b', N_CHANNELS)))
-        # output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.Pix'+str(i), input_dim=inp_dim, output_dim=DIM_PIX, filter_size=PIXEL_CNN_FILTER_SIZE, inputs=output, mask_type=('b', N_CHANNELS)))
-        skip_outputs.append(output)
+        inp_dim = (DIM_1 + DIM_PIX if i==0 else DIM_PIX)
+
+        # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.Pix'+str(i), input_dim=inp_dim, output_dim=2*DIM_1, filter_size=PIXEL_CNN_FILTER_SIZE, inputs=output, mask_type=('b', N_CHANNELS)))
+        output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.Pix'+str(i), input_dim=inp_dim, output_dim=DIM_PIX, filter_size=PIXEL_CNN_FILTER_SIZE, inputs=output, mask_type=('b', N_CHANNELS)))
+        # skip_outputs.append(output)
+        if i > 0:
+            output = output + prev_out
+        prev_out = output
     
-    output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
-    # output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
-    skip_outputs.append(output)
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    # skip_outputs.append(output)
 
-    output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
-    # output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
-    skip_outputs.append(output)
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    # skip_outputs.append(output)
 
-    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
-    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
 
     return output
+
+
+def Decoder_no_blind(latents, images):
+    output = latents
+
+    output = lib.ops.linear.Linear('Dec.Inp', input_dim=LATENT_DIM, output_dim=4*4*DIM_4, inputs=output)
+    output = T.nnet.relu(output.reshape((output.shape[0], DIM_4, 4, 4)))
+
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.1', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.3', input_dim=DIM_4, output_dim=DIM_3, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.4', input_dim=DIM_3, output_dim=DIM_3, filter_size=3, inputs=output))
+
+    # Cut from 8x8 to 7x7
+    output = output[:,:,:7,:7]
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.5', input_dim=DIM_3, output_dim=DIM_2, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.6', input_dim=DIM_2, output_dim=DIM_2, filter_size=3, inputs=output))
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.7', input_dim=DIM_2, output_dim=DIM_1, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.8', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, inputs=output))
+
+    skip_outputs = []
+
+    X_v, X_h = next_stacks(images, images, N_CHANNELS, "Dec.PixInput", filter_size = 7, hstack = "hstack_a")
+
+    X_h = T.concatenate([X_h, output], axis=1)
+
+    X_h = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.H_L', input_dim=DIM_PIX+DIM_1, output_dim=DIM_PIX, filter_size=1, inputs=X_h))
+
+    for i in xrange(PIXEL_CNN_LAYERS):
+        X_v, X_h = next_stacks(X_v, X_h, DIM_PIX, "Dec.Pix"+str(i+1), filter_size = 3)
+        if i > 0:
+            X_h = X_h + prev_X_h
+        prev_X_h = X_h
+    
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=X_h))
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    # skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
+ 
 
 total_iters = T.iscalar('total_iters')
 images = T.tensor4('images') # shape: (batch size, n channels, height, width)
@@ -164,7 +249,7 @@ else:
 # Theano bug: NaNs unless I pass 2D tensors to binary_crossentropy
 reconst_cost = T.nnet.binary_crossentropy(
     T.nnet.sigmoid(
-        Decoder(latents, images).reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
+        Decoder_no_blind(latents, images).reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
     ),
     images.reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
 ).mean(axis=0).sum()
@@ -187,7 +272,7 @@ else:
 sample_fn_latents = T.matrix('sample_fn_latents')
 sample_fn = theano.function(
     [sample_fn_latents, images],
-    T.nnet.sigmoid(Decoder(sample_fn_latents, images))
+    T.nnet.sigmoid(Decoder_no_blind(sample_fn_latents, images))
 )
 
 eval_fn = theano.function(
