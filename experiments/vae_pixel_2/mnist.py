@@ -33,21 +33,26 @@ import lasagne
 
 import functools
 
-theano.config.dnn.conv.algo_fwd = 'time_on_shape_change'
-theano.config.dnn.conv.algo_bwd_filter = 'time_on_shape_change'
-theano.config.dnn.conv.algo_bwd_data = 'time_on_shape_change'
+# theano.config.dnn.conv.algo_fwd = 'time_on_shape_change'
+# theano.config.dnn.conv.algo_bwd_filter = 'time_on_shape_change'
+# theano.config.dnn.conv.algo_bwd_data = 'time_on_shape_change'
 
 lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
+
+OUT_DIR = '/Tmp/kumarkun/mnist_pixel_vae'
+
+if not os.path.isdir(OUT_DIR):
+    os.system('mkdir {}'.format(OUT_DIR))
 
 DIM_1 = 32
 DIM_2 = 32
 DIM_3 = 64
 DIM_4 = 64
 DIM_PIX = 32
-PIXEL_CNN_FILTER_SIZE = 3
-PIXEL_CNN_LAYERS = 10
+PIXEL_CNN_FILTER_SIZE = 5
+PIXEL_CNN_LAYERS = 7
 
 LATENT_DIM = 64
 ALPHA_ITERS = 10000
@@ -71,7 +76,18 @@ def PixCNNGate(x):
     b = x[:,1::2]
     return T.tanh(a) * T.nnet.sigmoid(b)
 
-def next_stacks(X_v, X_h, inp_dim, name, filter_size = 3, hstack = 'hstack'):
+def PixCNN_condGate(x, z, dim, name = ""):
+    a = x[:,::2]
+    b = x[:,1::2]
+
+    Z_to_tanh = lib.ops.linear.Linear(name+".tanh", input_dim=LATENT_DIM, output_dim=dim, inputs=z)
+    Z_to_sigmoid = lib.ops.linear.Linear(name+".sigmoid", input_dim=LATENT_DIM, output_dim=dim, inputs=z)
+
+    a = a + Z_to_tanh[:,:, None, None]
+    b = b + Z_to_sigmoid[:,:,None, None]
+    return T.tanh(a) * T.nnet.sigmoid(b)
+
+def next_stacks(X_v, X_h, inp_dim, name, global_conditioning = None, filter_size = 3, hstack = 'hstack'):
     zero_pad = T.zeros((X_v.shape[0], X_v.shape[1], 1, X_v.shape[3]))
 
     X_v_padded = T.concatenate([zero_pad, X_v], axis = 2)
@@ -79,7 +95,7 @@ def next_stacks(X_v, X_h, inp_dim, name, filter_size = 3, hstack = 'hstack'):
     X_v_next = lib.ops.conv2d.Conv2D(
             name + ".vstack", 
             input_dim=inp_dim, 
-            output_dim=DIM_PIX, 
+            output_dim=2*DIM_PIX, 
             filter_size=filter_size, 
             inputs=X_v_padded, 
             mask_type=('vstack', N_CHANNELS)
@@ -88,17 +104,22 @@ def next_stacks(X_v, X_h, inp_dim, name, filter_size = 3, hstack = 'hstack'):
     X_v2h = lib.ops.conv2d.Conv2D(
             name + ".v2h", 
             input_dim=DIM_PIX, 
-            output_dim=DIM_PIX, 
+            output_dim=2*DIM_PIX, 
             filter_size=(1,1), 
             inputs=X_v_next[:,:,:-1,:]
         )
 
-    X_h_input = T.concatenate([X_h, X_v2h], axis = 1)
+    if global_conditioning is None:
+        X_h_input = X_h + X_v2h
+        in_dim = DIM_PIX
+    else:
+        X_h_input = T.concatenate([X_h, X_v2h, global_conditioning], axis = 1)
+        in_dim = DIM_PIX + DIM_1 + inp_dim
 
     X_h_next = T.nnet.relu(
         lib.ops.conv2d.Conv2D(
             name + '.hstack', 
-            input_dim= DIM_PIX + inp_dim, 
+            input_dim= in_dim, 
             output_dim= DIM_PIX, 
             filter_size= (1,filter_size), 
             inputs= X_h_input, 
@@ -115,6 +136,56 @@ def next_stacks(X_v, X_h, inp_dim, name, filter_size = 3, hstack = 'hstack'):
             )
 
     return T.nnet.relu(X_v_next[:, :, 1:, :]), X_h_next
+
+def next_stacks_gated(X_v, X_h, inp_dim, name, global_conditioning = None,
+                                             filter_size = 3, hstack = 'hstack', residual = True):
+    zero_pad = T.zeros((X_v.shape[0], X_v.shape[1], 1, X_v.shape[3]))
+
+    X_v_padded = T.concatenate([zero_pad, X_v], axis = 2)
+
+    X_v_next = lib.ops.conv2d.Conv2D(
+            name + ".vstack", 
+            input_dim=inp_dim, 
+            output_dim=2*DIM_PIX, 
+            filter_size=filter_size, 
+            inputs=X_v_padded, 
+            mask_type=('vstack', N_CHANNELS)
+        )
+    X_v_next_gated = PixCNN_condGate(X_v_next, global_conditioning, DIM_PIX,
+                                     name = name + ".vstack.conditional")
+
+    X_v2h = lib.ops.conv2d.Conv2D(
+            name + ".v2h", 
+            input_dim=2*DIM_PIX, 
+            output_dim=2*DIM_PIX, 
+            filter_size=(1,1), 
+            inputs=X_v_next[:,:,:-1,:]
+        )
+    
+
+    X_h_next = lib.ops.conv2d.Conv2D(
+            name + '.hstack', 
+            input_dim= inp_dim, 
+            output_dim= 2*DIM_PIX, 
+            filter_size= (1,filter_size), 
+            inputs= X_h, 
+            mask_type=(hstack, N_CHANNELS)
+        )
+
+    X_h_next = PixCNN_condGate(X_h_next + X_v2h, global_conditioning, DIM_PIX, name = name + ".hstack.conditional")
+
+    X_h_next = lib.ops.conv2d.Conv2D(
+            name + '.h2h', 
+            input_dim=DIM_PIX, 
+            output_dim=DIM_PIX, 
+            filter_size=(1,1), 
+            inputs= X_h_next
+            )
+
+    if residual:
+        X_h_next = X_h_next + X_h
+
+    return X_v_next_gated[:, :, 1:, :], X_h_next
 
 
 
@@ -249,7 +320,105 @@ def Decoder_no_blind(latents, images):
     # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
 
     return output
+
+def Decoder_no_blind_z_everywhere(latents, images):
+    output = latents
+
+    output = lib.ops.linear.Linear('Dec.Inp', input_dim=LATENT_DIM, output_dim=4*4*DIM_4, inputs=output)
+    output = T.nnet.relu(output.reshape((output.shape[0], DIM_4, 4, 4)))
+
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.1', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.3', input_dim=DIM_4, output_dim=DIM_3, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.4', input_dim=DIM_3, output_dim=DIM_3, filter_size=3, inputs=output))
+
+    # Cut from 8x8 to 7x7
+    output = output[:,:,:7,:7]
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.5', input_dim=DIM_3, output_dim=DIM_2, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.6', input_dim=DIM_2, output_dim=DIM_2, filter_size=3, inputs=output))
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.7', input_dim=DIM_2, output_dim=DIM_1, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.8', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, inputs=output))
+
+    skip_outputs = []
+
+    X_v, X_h = next_stacks(images, images, N_CHANNELS, "Dec.PixInput", global_conditioning = output, filter_size = 7, hstack = "hstack_a")
+
+    for i in xrange(PIXEL_CNN_LAYERS):
+        X_v, X_h = next_stacks(X_v, X_h, DIM_PIX, "Dec.Pix"+str(i+1), global_conditioning = output, filter_size = 3)
+        if i > 0:
+            X_h = X_h + prev_X_h
+        prev_X_h = X_h
+    
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=X_h))
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    # skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
+
+def Decoder_no_blind_conditioned_on_z(latents, images):
+    output = latents
+
+    X_v, X_h = next_stacks_gated(
+                images, images, N_CHANNELS, "Dec.PixInput", 
+                global_conditioning = latents, filter_size = 7, 
+                hstack = "hstack_a", residual = False
+                )
+
+    for i in xrange(PIXEL_CNN_LAYERS):
+        X_v, X_h = next_stacks_gated(X_v, X_h, DIM_PIX, "Dec.Pix"+str(i+1), global_conditioning = latents, filter_size = PIXEL_CNN_FILTER_SIZE)
+    
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_h)
+    output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut1.cond' )
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=output)
+    output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut2.cond' )
+    # skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
  
+def Decoder_no_blind_z_bias(latents, images):
+
+    output = lib.ops.linear.Linear('Dec.Inp', input_dim=LATENT_DIM, output_dim=DIM_1, inputs=latents)
+    output = output[:, :, None, None]
+
+    X_v, X_h = next_stacks(images, images, N_CHANNELS, "Dec.PixInput", filter_size = 7, hstack = "hstack_a")
+
+    for i in xrange(PIXEL_CNN_LAYERS):
+        X_v, X_h = next_stacks(X_v, X_h, DIM_PIX, "Dec.Pix"+str(i+1), filter_size = 3)
+        if i > 0:
+            X_h = X_h + 0.5*prev_X_h + 0.5*output
+        prev_X_h = X_h
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=X_h))
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    # skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
+
+
 
 total_iters = T.iscalar('total_iters')
 images = T.tensor4('images') # shape: (batch size, n channels, height, width)
@@ -265,7 +434,7 @@ else:
 # Theano bug: NaNs unless I pass 2D tensors to binary_crossentropy
 reconst_cost = T.nnet.binary_crossentropy(
     T.nnet.sigmoid(
-        Decoder_no_blind(latents, images).reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
+        Decoder_no_blind_conditioned_on_z(latents, images).reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
     ),
     images.reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
 ).mean(axis=0).sum()
@@ -288,7 +457,7 @@ else:
 sample_fn_latents = T.matrix('sample_fn_latents')
 sample_fn = theano.function(
     [sample_fn_latents, images],
-    T.nnet.sigmoid(Decoder_no_blind(sample_fn_latents, images))
+    T.nnet.sigmoid(Decoder_no_blind_conditioned_on_z(sample_fn_latents, images))
 )
 
 eval_fn = theano.function(
@@ -316,7 +485,7 @@ def generate_and_save_samples(tag):
         images = images.reshape((10*28, 10*28))
 
         image = scipy.misc.toimage(images, cmin=0.0, cmax=1.0)
-        image.save('{}_{}.jpg'.format(filename, tag))
+        image.save('{}/{}_{}.jpg'.format(OUT_DIR, filename, tag))
 
     def binarize(images):
         """
