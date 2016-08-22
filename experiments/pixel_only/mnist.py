@@ -33,6 +33,13 @@ import lasagne
 
 import functools
 
+import argparse
+
+parser = argparse.ArgumentParser(description='Generating images pixel by pixel')
+parser.add_argument('-L','--num_pixel_cnn_layer', required=True, type=int, help='Number of layers to use in pixelCNN')
+parser.add_argument('-F','--pixel_filter_size', required=True, type=int, help='filter_size to use in pixelCNN')
+
+args = parser.parse_args()
 # theano.config.dnn.conv.algo_fwd = 'time_on_shape_change'
 # theano.config.dnn.conv.algo_bwd_filter = 'time_on_shape_change'
 # theano.config.dnn.conv.algo_bwd_data = 'time_on_shape_change'
@@ -41,18 +48,19 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-OUT_DIR = '/Tmp/kumarkun/mnist_pixel_only' + "/layer_12"
+OUT_DIR = '/Tmp/kumarkun/mnist_pixel_only' + "/layer_{}_fs_{}".format(args.num_pixel_cnn_layer, args.pixel_filter_size)
 
 if not os.path.isdir(OUT_DIR):
-    os.system('mkdir {}'.format(OUT_DIR))
+    os.makedirs(OUT_DIR)
+    print "Created directory {}".format(OUT_DIR)
 
 DIM_1 = 32
 DIM_2 = 32
 DIM_3 = 64
 DIM_4 = 64
 DIM_PIX = 32
-PIXEL_CNN_FILTER_SIZE = 5
-PIXEL_CNN_LAYERS = 12
+PIXEL_CNN_FILTER_SIZE = args.pixel_filter_size
+PIXEL_CNN_LAYERS = args.num_pixel_cnn_layer
 
 LATENT_DIM = 64
 ALPHA_ITERS = 10000
