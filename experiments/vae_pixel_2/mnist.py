@@ -106,7 +106,7 @@ def PixCNNGate(x):
     b = x[:,1::2]
     return T.tanh(a) * T.nnet.sigmoid(b)
 
-def PixCNN_condGate(x, z, dim,  activation= 'elu', name = ""):
+def PixCNN_condGate(x, z, dim,  activation= 'tanh', name = ""):
     a = x[:,::2]
     b = x[:,1::2]
 
@@ -140,10 +140,10 @@ def PixCNN_condNoGate(x, z, dim, name = ""):
     Z_to_tanh = lib.ops.linear.Linear(name+".tanh", input_dim=LATENT_DIM, output_dim=dim, inputs=z)
     return T.tanh(a + Z_to_tanh[:, :, None, None])
 
-def next_stacks(X_v, X_h, inp_dim, name, 
-                global_conditioning = None, 
-                filter_size = 3, 
-                hstack = 'hstack', 
+def next_stacks(X_v, X_h, inp_dim, name,
+                global_conditioning = None,
+                filter_size = 3,
+                hstack = 'hstack',
                 residual = True
             ):
     zero_pad = T.zeros((X_v.shape[0], X_v.shape[1], 1, X_v.shape[3]))
@@ -151,40 +151,40 @@ def next_stacks(X_v, X_h, inp_dim, name,
     X_v_padded = T.concatenate([zero_pad, X_v], axis = 2)
 
     X_v_next = lib.ops.conv2d.Conv2D(
-            name + ".vstack", 
-            input_dim=inp_dim, 
-            output_dim=2*DIM_PIX, 
-            filter_size=filter_size, 
-            inputs=X_v_padded, 
+            name + ".vstack",
+            input_dim=inp_dim,
+            output_dim=2*DIM_PIX,
+            filter_size=filter_size,
+            inputs=X_v_padded,
             mask_type=('vstack', N_CHANNELS)
         )
 
     X_v_next_gated = PixCNNGate(X_v_next)
 
     X_v2h = lib.ops.conv2d.Conv2D(
-            name + ".v2h", 
-            input_dim=2*DIM_PIX, 
-            output_dim=2*DIM_PIX, 
-            filter_size=(1,1), 
+            name + ".v2h",
+            input_dim=2*DIM_PIX,
+            output_dim=2*DIM_PIX,
+            filter_size=(1,1),
             inputs=X_v_next[:,:,:-1,:]
         )
 
     X_h_next = lib.ops.conv2d.Conv2D(
-            name + '.hstack', 
-            input_dim= inp_dim, 
-            output_dim= 2*DIM_PIX, 
-            filter_size= (1,filter_size), 
-            inputs= X_h, 
+            name + '.hstack',
+            input_dim= inp_dim,
+            output_dim= 2*DIM_PIX,
+            filter_size= (1,filter_size),
+            inputs= X_h,
             mask_type=(hstack, N_CHANNELS)
         )
 
     X_h_next = PixCNNGate(X_h_next + X_v2h)
 
     X_h_next = lib.ops.conv2d.Conv2D(
-            name + '.h2h', 
-            input_dim=DIM_PIX, 
-            output_dim=DIM_PIX, 
-            filter_size=(1,1), 
+            name + '.h2h',
+            input_dim=DIM_PIX,
+            output_dim=DIM_PIX,
+            filter_size=(1,1),
             inputs= X_h_next
             )
 
@@ -200,41 +200,41 @@ def next_stacks_gated(X_v, X_h, inp_dim, name, global_conditioning = None,
     X_v_padded = T.concatenate([zero_pad, X_v], axis = 2)
 
     X_v_next = lib.ops.conv2d.Conv2D(
-            name + ".vstack", 
-            input_dim=inp_dim, 
-            output_dim=2*DIM_PIX, 
-            filter_size=filter_size, 
-            inputs=X_v_padded, 
+            name + ".vstack",
+            input_dim=inp_dim,
+            output_dim=2*DIM_PIX,
+            filter_size=filter_size,
+            inputs=X_v_padded,
             mask_type=('vstack', N_CHANNELS)
         )
     X_v_next_gated = PixCNN_condGate(X_v_next, global_conditioning, DIM_PIX,
                                      name = name + ".vstack.conditional")
 
     X_v2h = lib.ops.conv2d.Conv2D(
-            name + ".v2h", 
-            input_dim=2*DIM_PIX, 
-            output_dim=2*DIM_PIX, 
-            filter_size=(1,1), 
+            name + ".v2h",
+            input_dim=2*DIM_PIX,
+            output_dim=2*DIM_PIX,
+            filter_size=(1,1),
             inputs=X_v_next[:,:,:-1,:]
         )
-    
+
 
     X_h_next = lib.ops.conv2d.Conv2D(
-            name + '.hstack', 
-            input_dim= inp_dim, 
-            output_dim= 2*DIM_PIX, 
-            filter_size= (1,filter_size), 
-            inputs= X_h, 
+            name + '.hstack',
+            input_dim= inp_dim,
+            output_dim= 2*DIM_PIX,
+            filter_size= (1,filter_size),
+            inputs= X_h,
             mask_type=(hstack, N_CHANNELS)
         )
 
     X_h_next = PixCNN_condGate(X_h_next + X_v2h, global_conditioning, DIM_PIX, name = name + ".hstack.conditional")
 
     X_h_next = lib.ops.conv2d.Conv2D(
-            name + '.h2h', 
-            input_dim=DIM_PIX, 
-            output_dim=DIM_PIX, 
-            filter_size=(1,1), 
+            name + '.h2h',
+            input_dim=DIM_PIX,
+            output_dim=DIM_PIX,
+            filter_size=(1,1),
             inputs= X_h_next
             )
 
@@ -291,7 +291,7 @@ def Encoder_with_elu(inputs):
 
     output = output.reshape((output.shape[0], -1))
     output = lib.ops.linear.Linear('Enc.9', input_dim=4*4*DIM_4, output_dim=2*LATENT_DIM, inputs=output)
-    
+
     output = T.nnet.elu(output)
     output = lib.ops.linear.Linear('Enc.10', input_dim=2*LATENT_DIM, output_dim=2*LATENT_DIM, inputs=output)
 
@@ -347,7 +347,7 @@ def Decoder(latents, images):
 
     masked_images = T.nnet.relu(lib.ops.conv2d.Conv2D(
         'Dec.PixInp',
-        input_dim=N_CHANNELS, 
+        input_dim=N_CHANNELS,
         output_dim=DIM_1,
         filter_size=7,
         inputs=images,
@@ -366,7 +366,7 @@ def Decoder(latents, images):
         if i > 0:
             output = output + prev_out
         prev_out = output
-    
+
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
     # skip_outputs.append(output)
@@ -533,7 +533,7 @@ def Decoder_no_blind_z_everywhere(latents, images):
         if i > 0:
             X_h = X_h + prev_X_h
         prev_X_h = X_h
-    
+
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=X_h))
     # skip_outputs.append(output)
@@ -551,14 +551,14 @@ def Decoder_no_blind_conditioned_on_z(latents, images):
     output = latents
 
     X_v, X_h = next_stacks_gated(
-                images, images, N_CHANNELS, "Dec.PixInput", 
-                global_conditioning = latents, filter_size = 7, 
+                images, images, N_CHANNELS, "Dec.PixInput",
+                global_conditioning = latents, filter_size = 7,
                 hstack = "hstack_a", residual = False
                 )
 
     for i in xrange(PIXEL_CNN_LAYERS):
         X_v, X_h = next_stacks_gated(X_v, X_h, DIM_PIX, "Dec.Pix"+str(i+1), global_conditioning = latents, filter_size = PIXEL_CNN_FILTER_SIZE)
-    
+
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_h)
     output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut1.cond' )
@@ -573,7 +573,7 @@ def Decoder_no_blind_conditioned_on_z(latents, images):
     # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
 
     return output
- 
+
 def Decoder_no_blind_z_bias(latents, images):
 
     output = lib.ops.linear.Linear('Dec.Inp', input_dim=LATENT_DIM, output_dim=DIM_1, inputs=latents)
@@ -640,7 +640,7 @@ reconst_cost = T.nnet.binary_crossentropy(
 ).mean(axis=0).sum()
 
 reg_cost = lib.ops.kl_unit_gaussian.kl_unit_gaussian(
-    mu, 
+    mu,
     log_sigma
 ).mean(axis=0).sum()
 
@@ -667,7 +667,7 @@ eval_fn = theano.function(
 )
 
 train_data, dev_data, test_data = lib.mnist_binarized.load(
-    BATCH_SIZE, 
+    BATCH_SIZE,
     TEST_BATCH_SIZE
 )
 
@@ -711,7 +711,7 @@ def generate_and_save_samples(tag):
     latents = latents.astype(theano.config.floatX)
 
     samples = np.zeros(
-        (1000, N_CHANNELS, HEIGHT, WIDTH), 
+        (1000, N_CHANNELS, HEIGHT, WIDTH),
         dtype=theano.config.floatX
     )
 
@@ -729,8 +729,8 @@ lib.train_loop.train_loop(
     inject_total_iters=True,
     cost=cost,
     prints=[
-        ('alpha', alpha), 
-        ('reconst', reconst_cost), 
+        ('alpha', alpha),
+        ('reconst', reconst_cost),
         ('reg', reg_cost)
     ],
     optimizer=functools.partial(lasagne.updates.adam, learning_rate=LR),
