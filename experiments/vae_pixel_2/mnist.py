@@ -40,13 +40,13 @@ import functools
 parser = argparse.ArgumentParser(description='Generating images pixel by pixel')
 parser.add_argument('-L','--num_pixel_cnn_layer', required=True, type=int, help='Number of layers to use in pixelCNN')
 parser.add_argument('-ot','--other_info', required=True)
-parser.add_argument('-algo', '--decoder_algorithm', required = True, help="One of 'cond_z_bias', 'upsample_z_no_conv', 'upsample_z_conv'" )
+parser.add_argument('-algo', '--decoder_algorithm', required = True, help="One of 'cond_z_bias', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only'" )
 parser.add_argument('-enc', '--encoder', required = False, default='simple', help="Encoder: 'complecated' or 'simple' " )
 
 args = parser.parse_args()
 
 
-assert args.decoder_algorithm in ['cond_z_bias', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only']
+assert args.decoder_algorithm in ['cond_z_bias', 'cond_z_bias_skip', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only' ]
 
 print args.other_info
 
@@ -58,7 +58,7 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-OUT_DIR = '/Tmp/kumarkun/mnist_pixel_vae' + "/num_layers_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
+OUT_DIR = '/Tmp/kumarkun/mnist_pixel_vae_pval_new' + "/num_layers_new_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
 
 if not os.path.isdir(OUT_DIR):
     os.makedirs(OUT_DIR)
@@ -401,16 +401,17 @@ def Decoder_only_vae(latents, iamges):
     output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.7', input_dim=DIM_2, output_dim=DIM_1, filter_size=3, inputs=output))
     output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.8', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, inputs=output))
 
+    skip_outputs = []
 
     output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=DIM_PIX, filter_size=1, inputs=output))
-    # skip_outputs.append(output)
+    skip_outputs.append(output)
 
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
-    # skip_outputs.append(output)
+    skip_outputs.append(output)
 
-    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
-    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
 
     return output
 
@@ -559,6 +560,7 @@ def Decoder_no_blind_conditioned_on_z(latents, images):
     for i in xrange(PIXEL_CNN_LAYERS):
         X_v, X_h = next_stacks_gated(X_v, X_h, DIM_PIX, "Dec.Pix"+str(i+1), global_conditioning = latents, filter_size = PIXEL_CNN_FILTER_SIZE)
 
+
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_h)
     output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut1.cond' )
@@ -571,6 +573,36 @@ def Decoder_no_blind_conditioned_on_z(latents, images):
 
     output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
     # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
+
+def Decoder_no_blind_conditioned_on_z_skip(latents, images):
+    output = latents
+
+    X_v, X_h = next_stacks_gated(
+                images, images, N_CHANNELS, "Dec.PixInput",
+                global_conditioning = latents, filter_size = 7,
+                hstack = "hstack_a", residual = False
+                )
+
+    skip_outputs = []
+    for i in xrange(PIXEL_CNN_LAYERS):
+        X_v, X_h = next_stacks_gated(X_v, X_h, DIM_PIX, "Dec.Pix"+str(i+1), global_conditioning = latents, filter_size = PIXEL_CNN_FILTER_SIZE)
+        if (i % 3) == 0:
+            skip_outputs.append(X_h)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_h)
+    output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut1.cond' )
+    skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=output)
+    output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut2.cond' )
+    skip_outputs.append(output)
+
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
 
     return output
 
@@ -609,6 +641,8 @@ elif args.decoder_algorithm == 'upsample_z_no_conv':
     decode_algo = Decoder_no_blind_vary_up_sampling
 elif args.decoder_algorithm == 'vae_only':
     decode_algo = Decoder_only_vae
+elif args.decoder_algorithm == 'cond_z_bias_skip':
+    decode_algo = Decoder_no_blind_conditioned_on_z_skip
 else:
     assert False, "you should never be here!!"
 
@@ -706,23 +740,25 @@ def generate_and_save_samples(tag):
         ).astype(theano.config.floatX)
 
     latents = np.random.normal(size=(10, LATENT_DIM))
-    latents = np.repeat(latents, 100, axis=0)
+    latents = np.repeat(latents, 10, axis=0)
 
     latents = latents.astype(theano.config.floatX)
 
     samples = np.zeros(
-        (1000, N_CHANNELS, HEIGHT, WIDTH),
+        (100, N_CHANNELS, HEIGHT, WIDTH),
         dtype=theano.config.floatX
     )
 
     for j in xrange(HEIGHT):
         for k in xrange(WIDTH):
             for i in xrange(N_CHANNELS):
-                next_sample = binarize(sample_fn(latents, samples))
+                samples_p_value = sample_fn(latents, samples)
+                next_sample = binarize(samples_p_value)
                 samples[:, i, j, k] = next_sample[:, i, j, k]
 
-    for i in range(10):
-        save_images(samples[i*100:(i+1)*100], 'samples_repeated_', i)
+    save_images(samples_p_value, 'samples_pval_repeated_')
+
+print("Training")
 
 lib.train_loop.train_loop(
     inputs=[total_iters, images],
