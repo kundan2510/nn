@@ -563,12 +563,12 @@ def Decoder_no_blind_conditioned_on_z(latents, images):
 
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_h)
-    output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut1.cond' )
+    output = PixCNN_condGate(output, latents, DIM_PIX, name='Dec.PixOut1.cond' )
     # skip_outputs.append(output)
 
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=output)
-    output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut2.cond' )
+    output = PixCNN_condGate(output, latents, DIM_PIX, name='Dec.PixOut2.cond' )
     # skip_outputs.append(output)
 
     output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
@@ -593,12 +593,12 @@ def Decoder_no_blind_conditioned_on_z_skip(latents, images):
 
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_h)
-    output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut1.cond' )
+    output = PixCNN_condGate(output, latents, DIM_PIX, name = 'Dec.PixOut1.cond' )
     skip_outputs.append(output)
 
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=output)
-    output = PixCNN_condGate(output, latents, DIM_PIX,'Dec.PixOut2.cond' )
+    output = PixCNN_condGate(output, latents, DIM_PIX, name ='Dec.PixOut2.cond' )
     skip_outputs.append(output)
 
     # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
