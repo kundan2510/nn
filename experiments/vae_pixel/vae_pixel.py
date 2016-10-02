@@ -41,13 +41,13 @@ import lasagne
 import time
 import functools
 
-MODE = '256ary' # binary or 256ary
+MODE = 'binary' # binary or 256ary
 
 MODEL = 'pixel_cnn' # either pixel_cnn or pixel_rnn
 PIX_DIM = 128
 PIXEL_CNN_LAYERS = 4
 PIXEL_CNN_FILTER_SIZE = 3
-SKIP_PIX_CNN = True
+SKIP_PIX_CNN = False
 
 CONV_BASE_N_FILTERS = 128
 CONV_N_POOLS = 3
@@ -62,7 +62,7 @@ LR = 1e-4
 
 NEW_ANNEAL = False
 
-DATASET = 'lsun'
+DATASET = 'mnist'
 LSUN_DOWNSAMPLE = True
 
 TIMES = ('iters', 1000, 200000, 1000)
@@ -321,8 +321,8 @@ if MODE=='256ary':
 else:
     reconst_cost = T.nnet.binary_crossentropy(
         T.nnet.sigmoid(output), 
-        inputs
-    ).sum() / inputs.shape[0].astype(theano.config.floatX)
+        images
+    ).sum() / images.shape[0].astype(theano.config.floatX)
 
 
 reg_cost = lib.ops.kl_unit_gaussian.kl_unit_gaussian(mu, log_sigma).mean()
@@ -474,7 +474,7 @@ lib.train_loop.train_loop(
     ],
     optimizer=functools.partial(lasagne.updates.adam, learning_rate=LR),
     train_data=train_data,
-    # test_data=dev_data,
+    test_data=dev_data,
     callback=generate_and_save_samples,
     times=TIMES
 )

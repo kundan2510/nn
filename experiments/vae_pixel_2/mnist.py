@@ -39,16 +39,20 @@ import functools
 
 parser = argparse.ArgumentParser(description='Generating images pixel by pixel')
 parser.add_argument('-L','--num_pixel_cnn_layer', required=True, type=int, help='Number of layers to use in pixelCNN')
-parser.add_argument('-ot','--other_info', required=True)
 parser.add_argument('-algo', '--decoder_algorithm', required = True, help="One of 'cond_z_bias', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only'" )
 parser.add_argument('-enc', '--encoder', required = False, default='simple', help="Encoder: 'complecated' or 'simple' " )
+parser.add_argument('-dpx', '--dim_pix', required = False, default=32, type = int )
+parser.add_argument('-fs', '--filter_size', required = False, default=5, type = int )
+parser.add_argument('-ldim', '--latent_dim', required = False, default=64, type = int )
+parser.add_argument('-ait', '--alpha_iters', required = False, default=10000, type = int )
+
 
 args = parser.parse_args()
 
 
-assert args.decoder_algorithm in ['cond_z_bias', 'cond_z_bias_skip', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only' ]
+assert args.decoder_algorithm in ['cond_z_bias', 'cond_z_bias_skip', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only', 'traditional', 'traditional_exact' ]
 
-print args.other_info
+print args
 
 # theano.config.dnn.conv.algo_fwd = 'time_on_shape_change'
 # theano.config.dnn.conv.algo_bwd_filter = 'time_on_shape_change'
@@ -58,7 +62,7 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-OUT_DIR = '/Tmp/kumarkun/mnist_pixel_vae_pval_new' + "/num_layers_new_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
+OUT_DIR = '/Tmp/kumarkun/mnist_pixel_vae_pval_new' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
 
 if not os.path.isdir(OUT_DIR):
     os.makedirs(OUT_DIR)
@@ -75,12 +79,12 @@ DIM_1 = 32
 DIM_2 = 32
 DIM_3 = 64
 DIM_4 = 64
-DIM_PIX = 32
-PIXEL_CNN_FILTER_SIZE = 5
+DIM_PIX = args.dim_pix
+PIXEL_CNN_FILTER_SIZE = args.filter_size
 PIXEL_CNN_LAYERS = args.num_pixel_cnn_layer
 
-LATENT_DIM = 64
-ALPHA_ITERS = 10000
+LATENT_DIM = args.latent_dim
+ALPHA_ITERS = args.alpha_iters
 VANILLA = False
 LR = 1e-3
 
@@ -90,7 +94,7 @@ HEIGHT = 28
 WIDTH = 28
 
 TEST_BATCH_SIZE = 100
-TIMES = ('iters', 1000, 2000*500, 1000, 200*500, 2*ALPHA_ITERS)
+TIMES = ('iters', 500, 500*400, 500, 400*500, 2*ALPHA_ITERS)
 
 lib.print_model_settings(locals().copy())
 
@@ -120,6 +124,17 @@ def PixCNN_condGate(x, z, dim,  activation= 'tanh', name = ""):
         return T.tanh(a) * T.nnet.sigmoid(b)
     else:
         return T.nnet.elu(a) * T.nnet.sigmoid(b)
+
+def pixelCNN_old_block(x, inp_dim, name, residual = False):
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D(name + ".1x1_init", input_dim=inp_dim, output_dim=DIM_PIX, filter_size=1, inputs=x))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D(name + ".3x3_masked", input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=3, inputs=output, mask_type=('b', N_CHANNELS)))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D(name + ".1x1_final", input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+
+    if residual:
+        return output + x
+    else:
+        return output
+
 
 # def PixCNN_condGate_ELU(x, z, dim, name = ""):
 #     a = x[:,::2]
@@ -374,6 +389,122 @@ def Decoder(latents, images):
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
     output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
     # skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
+
+def Decoder_traditional(latents, images):
+
+    output = latents
+
+    output = lib.ops.linear.Linear('Dec.Inp', input_dim=LATENT_DIM, output_dim=4*4*DIM_4, inputs=output)
+    output = T.nnet.relu(output.reshape((output.shape[0], DIM_4, 4, 4)))
+
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.1', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.3', input_dim=DIM_4, output_dim=DIM_3, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.4', input_dim=DIM_3, output_dim=DIM_3, filter_size=3, inputs=output))
+
+    # Cut from 8x8 to 7x7
+    output = output[:,:,:7,:7]
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.5', input_dim=DIM_3, output_dim=DIM_2, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.6', input_dim=DIM_2, output_dim=DIM_2, filter_size=3, inputs=output))
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.7', input_dim=DIM_2, output_dim=DIM_1, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.8', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, inputs=output))
+
+    skip_outputs = []
+
+    masked_images = T.nnet.relu(lib.ops.conv2d.Conv2D(
+        'Dec.PixInp',
+        input_dim=N_CHANNELS,
+        output_dim=DIM_1,
+        filter_size=7,
+        inputs=images,
+        mask_type=('a', N_CHANNELS),
+        he_init=False
+    ))
+
+    output = T.concatenate([masked_images, output], axis=1)
+
+    for i in xrange(PIXEL_CNN_LAYERS):
+        inp_dim = (DIM_1 + DIM_PIX if i==0 else DIM_PIX)
+
+        # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.Pix'+str(i), input_dim=inp_dim, output_dim=2*DIM_1, filter_size=PIXEL_CNN_FILTER_SIZE, inputs=output, mask_type=('b', N_CHANNELS)))
+        output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.Pix'+str(i), input_dim=inp_dim, output_dim=DIM_PIX, filter_size=PIXEL_CNN_FILTER_SIZE, inputs=output, mask_type=('b', N_CHANNELS)))
+        # skip_outputs.append(output)
+        if i > 0:
+            output = output + prev_out
+        prev_out = output
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
+
+
+def Decoder_traditional_exact(latents, images):
+
+    output = latents
+
+    output = lib.ops.linear.Linear('Dec.Inp', input_dim=LATENT_DIM, output_dim=4*4*DIM_4, inputs=output)
+    output = T.nnet.relu(output.reshape((output.shape[0], DIM_4, 4, 4)))
+
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.1', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.3', input_dim=DIM_4, output_dim=DIM_3, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.4', input_dim=DIM_3, output_dim=DIM_3, filter_size=3, inputs=output))
+
+    # Cut from 8x8 to 7x7
+    output = output[:,:,:7,:7]
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.5', input_dim=DIM_3, output_dim=DIM_2, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.6', input_dim=DIM_2, output_dim=DIM_2, filter_size=3, inputs=output))
+
+    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.7', input_dim=DIM_2, output_dim=DIM_1, filter_size=3, inputs=output))
+    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.8', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, inputs=output))
+
+    skip_outputs = []
+
+    masked_images = T.nnet.relu(lib.ops.conv2d.Conv2D(
+        'Dec.PixInp',
+        input_dim=N_CHANNELS,
+        output_dim=DIM_1,
+        filter_size=7,
+        inputs=images,
+        mask_type=('a', N_CHANNELS),
+        he_init=False
+    ))
+
+    output = T.concatenate([masked_images, output], axis=1)
+
+    for i in xrange(PIXEL_CNN_LAYERS):
+        inp_dim = (DIM_1 + DIM_PIX if i==0 else DIM_PIX)
+
+        # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.Pix'+str(i), input_dim=inp_dim, output_dim=2*DIM_1, filter_size=PIXEL_CNN_FILTER_SIZE, inputs=output, mask_type=('b', N_CHANNELS)))
+        output = pixelCNN_old_block(output, inp_dim, 'Dec.Pix'+str(i), residual = (i != 0))
+        # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
+    skip_outputs.append(output)
 
     output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
     # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
@@ -643,6 +774,10 @@ elif args.decoder_algorithm == 'vae_only':
     decode_algo = Decoder_only_vae
 elif args.decoder_algorithm == 'cond_z_bias_skip':
     decode_algo = Decoder_no_blind_conditioned_on_z_skip
+elif args.decoder_algorithm == 'traditional':
+    decode_algo = Decoder_traditional
+elif args.decoder_algorithm == 'traditional_exact':
+    decode_algo = Decoder_traditional_exact
 else:
     assert False, "you should never be here!!"
 
