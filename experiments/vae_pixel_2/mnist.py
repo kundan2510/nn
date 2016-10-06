@@ -64,9 +64,9 @@ lib.ops.linear.enable_default_weightnorm()
 
 OUT_DIR = '/Tmp/kumarkun/mnist_pixel_vae_pval_new' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
 
-if not os.path.isdir(OUT_DIR):
-    os.makedirs(OUT_DIR)
-    print "Created directory {}".format(OUT_DIR)
+#if not os.path.isdir(OUT_DIR):
+#    os.makedirs(OUT_DIR)
+#    print "Created directory {}".format(OUT_DIR)
 
 def floatX(num):
     if theano.config.floatX == 'float32':
@@ -846,7 +846,7 @@ def generate_and_save_samples(tag):
     for (images,) in test_data():
         costs.append(eval_fn(images, ALPHA_ITERS+1))
     print "test cost: {}".format(np.mean(costs))
-
+    return
     def save_images(images, filename, i = None):
         """images.shape: (batch, n channels, height, width)"""
         if i is not None:
