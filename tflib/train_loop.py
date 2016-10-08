@@ -12,6 +12,7 @@ import locale
 
 locale.setlocale(locale.LC_ALL, '')
 
+
 def train_loop(
     session,
     inputs,
@@ -25,7 +26,8 @@ def train_loop(
     inject_total_iters=False,
     debug_mode=False,
     save_params=False,
-    profile=False
+    profile=False,
+    param_dir = None
     ):
     saver = tf.train.Saver()
 
@@ -196,7 +198,10 @@ def train_loop(
                         callback(tag)
 
                     if save_params:
-                        path = "params_{}.ckpt".format(tag)
+                        if param_dir is not None:
+                            path = "{}/params_{}.ckpt".format(param_dir, tag)
+                        else:
+                            path = "params_{}.ckpt".format(tag)
                         saver.save(session, path)
                         print "Saved params to {}".format(path)
 

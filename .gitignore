@@ -2,3 +2,8 @@
 pull
 push
 experiment_tools.py
+._*
+*log*
+*.py[cod]
+*.txt
+*.jpg

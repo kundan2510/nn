@@ -6,7 +6,7 @@ Ishaan Gulrajani
 import os, sys
 sys.path.append(os.getcwd())
 
-N_GPUS = 1
+N_GPUS = 4
 
 try: # This only matters on Ishaan's computer
     import experiment_tools
@@ -27,7 +27,7 @@ import tflib.ops.embedding
 
 import tflib.lsun_bedrooms
 import tflib.mnist_256
-import tflib.small_imagenet
+# import tflib.small_imagenet
 
 import numpy as np
 import tensorflow as tf
@@ -37,8 +37,18 @@ from scipy.misc import imsave
 import time
 import functools
 
-DATASET = 'imagenet_64' # mnist_256, lsun_32, lsun_64, imagenet_64
+DATASET = 'lsun_64' # mnist_256, lsun_32, lsun_64, imagenet_64
 SETTINGS = '64px' # mnist_256, 32px_small, 32px_big, 64px
+OUT_DIR = '/Tmp/kumarkun/pixel_vae/{}/{}/samples'.format(DATASET,SETTINGS)
+PARAM_DIR = '/Tmp/kumarkun/pixel_vae/{}/{}/params'.format(DATASET,SETTINGS)
+
+if not os.path.exists(OUT_DIR):
+    os.makedirs(OUT_DIR)
+    print "Created {}".format(OUT_DIR)
+
+if not os.path.exists(PARAM_DIR):
+    os.makedirs(PARAM_DIR)
+    print "Created {}".format(PARAM_DIR)
 
 if SETTINGS == 'mnist_256':
     # two_level uses Enc1/Dec1 for the bottom level, Enc2/Dec2 for the top level
@@ -361,6 +371,58 @@ def ResidualBlock(name, input_dim, output_dim, inputs, inputs_stdev, filter_size
 
     return shortcut + (0.3 * output)
 
+def RMB(name, input_dim, output_dim, inputs, inputs_stdev, filter_size, mask_type=None, resample=None, he_init=True):
+    """
+    resample: None, 'down', or 'up'
+    """
+    if mask_type != None and resample != None:
+        raise Exception('Unsupported configuration')
+
+    if resample=='down':
+        conv_shortcut = functools.partial(lib.ops.conv2d.Conv2D, stride=2)
+        conv_1        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=input_dim, output_dim=input_dim)
+        conv_2        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=input_dim, output_dim=output_dim, stride=2)
+    elif resample=='up':
+        def conv_shortcut(*args, **kwargs):
+            kwargs['output_dim'] = 4*kwargs['output_dim']
+            output = lib.ops.conv2d.Conv2D(*args, **kwargs)
+            output = tf.transpose(output, [0,2,3,1])
+            old_shape = tf.shape(output)
+            output = tf.reshape(output, tf.pack([old_shape[0], 2*old_shape[1], 2*old_shape[2], old_shape[3]/4]))
+            output = tf.transpose(output, [0,3,1,2])
+            return output
+        conv_1        = functools.partial(lib.ops.deconv2d.Deconv2D, input_dim=input_dim, output_dim=output_dim)
+        conv_2        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=output_dim, output_dim=output_dim)
+    elif resample==None:
+        conv_shortcut = lib.ops.conv2d.Conv2D
+        conv_1        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=input_dim,  output_dim=output_dim)
+        conv_2        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=output_dim, output_dim=output_dim)
+    else:
+        raise Exception('invalid resample value')
+
+    if output_dim==input_dim and resample==None:
+        shortcut = inputs # Identity skip-connection
+    else:
+        shortcut = conv_shortcut(name+'.Shortcut', input_dim=input_dim, output_dim=output_dim, filter_size=1, mask_type=mask_type, he_init=False, biases=False, inputs=inputs)
+
+    output = inputs
+    if mask_type == None:
+        output = nonlinearity(output)
+        output = conv_1(name+'.Conv1', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+        output = nonlinearity(output)
+        output = conv_2(name+'.Conv2', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+    else:
+        output = nonlinearity(output)
+        output_a = conv_1(name+'.Conv1A', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+        output_b = conv_1(name+'.Conv1B', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+        output = pixcnn_gated_nonlinearity(output_a, output_b)
+        output = conv_2(name+'.Conv2', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+
+    output = nonlinearity(output)
+    output = conv_2(name+'.Conv3_1x1', filter_size=1, mask_type=None, inputs=output, he_init=he_init)
+
+    return shortcut +  output
+
 def Enc1(images):
     if PIXCNN_ONLY:
         batch_size = tf.shape(images)[0]
@@ -423,6 +485,50 @@ def Dec1(latents, images):
         tf.reshape(output, [-1, 256, N_CHANNELS, HEIGHT, WIDTH]),
         [0,2,3,4,1]
     )
+
+def DecRMB(latents, images):
+
+    if PIXCNN_ONLY:
+        batch_size = tf.shape(latents)[0]
+        output = tf.zeros(tf.pack([batch_size, DIM_1, HEIGHT, WIDTH]), tf.float32)
+    else:
+        output = tf.clip_by_value(latents, -50., 50.)
+        output = lib.ops.conv2d.Conv2D('Dec1.Input', input_dim=LATENT_DIM_1, output_dim=DIM_3, filter_size=1, inputs=output, he_init=False)
+
+        output = ResidualBlock('Dec1.Res1', input_dim=DIM_3, output_dim=DIM_3, filter_size=3, resample=None, inputs_stdev=1, inputs=output)
+        output = ResidualBlock('Dec1.Res2', input_dim=DIM_3, output_dim=DIM_2, filter_size=3, resample='up', inputs_stdev=np.sqrt(2), inputs=output)
+        output = ResidualBlock('Dec1.Res3', input_dim=DIM_2, output_dim=DIM_1, filter_size=3, resample='up', inputs_stdev=np.sqrt(3), inputs=output)
+
+        if SETTINGS == '64px':
+            output = ResidualBlock('Dec1.Res4', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, resample='up', inputs_stdev=np.sqrt(3), inputs=output)
+
+    if PIXEL_LEVEL_PIXCNN:
+
+        masked_images = lib.ops.conv2d.Conv2D('Dec1.Pix1', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=7, inputs=images, mask_type=('a', N_CHANNELS), he_init=False)
+
+        # Make the stdev of output and masked_images match
+        output /= np.sqrt(4)
+
+        # Warning! Because of the masked convolutions it's very important that masked_images comes first in this concat
+        output = tf.concat(1, [masked_images, output])
+
+        output = ResidualBlock('Dec1.Pix2Res', input_dim=2*DIM_1,   output_dim=DIM_PIX_1, filter_size=PIX1_FILT_SIZE, mask_type=('b', N_CHANNELS), inputs_stdev=1,          inputs=output)
+        if PIXCNN_ONLY:
+            for i in xrange(9):
+                output = ResidualBlock('Dec1.Pix2Res_'+str(i), input_dim=DIM_PIX_1,   output_dim=DIM_PIX_1, filter_size=PIX1_FILT_SIZE, mask_type=('b', N_CHANNELS), inputs_stdev=1,          inputs=output)
+        output = ResidualBlock('Dec1.Pix3Res', input_dim=DIM_PIX_1, output_dim=DIM_PIX_1, filter_size=1, mask_type=('b', N_CHANNELS), inputs_stdev=np.sqrt(2), inputs=output)
+
+        output = lib.ops.conv2d.Conv2D('Dec1.Out', input_dim=DIM_PIX_1, output_dim=256*N_CHANNELS, filter_size=1, mask_type=('b', N_CHANNELS), he_init=False, inputs=output)
+
+    else:
+
+        output = lib.ops.conv2d.Conv2D('Dec1.Out', input_dim=DIM_1, output_dim=256*N_CHANNELS, filter_size=1, he_init=False, inputs=output)
+
+    return tf.transpose(
+        tf.reshape(output, [-1, 256, N_CHANNELS, HEIGHT, WIDTH]),
+        [0,2,3,4,1]
+    )
+
 
 def Enc2(latents):
     if PIXCNN_ONLY:
@@ -634,7 +740,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
                 kl_cost_1 = tf.reduce_mean(
                     lib.ops.kl_unit_gaussian.kl_unit_gaussian(
-                        mu1, 
+                        mu1,
                         logsig1,
                         sig1
                     )
@@ -695,7 +801,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
                 kl_cost_1 = tf.reduce_mean(
                     lib.ops.kl_gaussian_gaussian.kl_gaussian_gaussian(
-                        mu1, 
+                        mu1,
                         logsig1,
                         sig1,
                         mu1_prior,
@@ -706,7 +812,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
                 kl_cost_2 = tf.reduce_mean(
                     lib.ops.kl_unit_gaussian.kl_unit_gaussian(
-                        mu2, 
+                        mu2,
                         logsig2,
                         sig2
                     )
@@ -762,7 +868,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                 latents1_copied[i::8] = sample_fn_latents1
 
             samples = np.zeros(
-                (64, N_CHANNELS, HEIGHT, WIDTH), 
+                (64, N_CHANNELS, HEIGHT, WIDTH),
                 dtype='int32'
             )
 
@@ -775,10 +881,10 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
             print "Saving samples"
             color_grid_vis(
-                samples, 
-                8, 
-                8, 
-                'samples_{}.png'.format(tag)
+                samples,
+                8,
+                8,
+                '{}/samples_{}.png'.format(OUT_DIR, tag)
             )
 
 
@@ -838,7 +944,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
             latents1_copied[1::2] = latents1
 
             samples = np.zeros(
-                (64, N_CHANNELS, HEIGHT, WIDTH), 
+                (64, N_CHANNELS, HEIGHT, WIDTH),
                 dtype='int32'
             )
 
@@ -861,15 +967,15 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
     if MODE == 'one_level':
         prints=[
-            ('alpha', alpha), 
-            ('reconst', reconst_cost), 
+            ('alpha', alpha),
+            ('reconst', reconst_cost),
             ('kl1', kl_cost_1)
         ]
     elif MODE == 'two_level':
         prints=[
             ('alpha1', alpha1),
             ('alpha2', alpha2),
-            ('reconst', reconst_cost), 
+            ('reconst', reconst_cost),
             ('kl1', kl_cost_1),
             ('kl2', kl_cost_2),
         ]
@@ -894,6 +1000,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         callback=generate_and_save_samples,
         times=TIMES,
         save_params=True,
+        param_dir = PARAM_DIR,
         # profile=True
         # debug_mode=True
     )

@@ -50,7 +50,7 @@ parser.add_argument('-ait', '--alpha_iters', required = False, default=10000, ty
 args = parser.parse_args()
 
 
-assert args.decoder_algorithm in ['cond_z_bias', 'cond_z_bias_skip', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only', 'traditional', 'traditional_exact' ]
+assert args.decoder_algorithm in ['condRMB','cond_z_bias', 'cond_z_bias_skip', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only', 'traditional', 'traditional_exact' ]
 
 print args
 
@@ -62,7 +62,7 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-OUT_DIR = '/Tmp/kumarkun/mnist_pixel_vae_pval_new' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
+OUT_DIR = '/Tmp/kumarkun/mnist_pixel_RMB' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
 
 #if not os.path.isdir(OUT_DIR):
 #    os.makedirs(OUT_DIR)
@@ -257,6 +257,55 @@ def next_stacks_gated(X_v, X_h, inp_dim, name, global_conditioning = None,
         X_h_next = X_h_next + X_h
 
     return X_v_next_gated[:, :, 1:, :], X_h_next
+
+def MU(name, x, dim, cond = None, mask_type = 'b', filter_size=3):
+
+    x_transformed = lib.ops.conv2d.Conv2D(
+            name + '.x_trans_conv',
+            input_dim= dim,
+            output_dim= 4*dim,
+            filter_size= filter_size,
+            inputs= x,
+            mask_type=(mask_type, N_CHANNELS)
+        )
+
+    if cond is not None:
+        cond_transform = lib.ops.linear.Linear(name+".cond_transform", input_dim=LATENT_DIM, output_dim=4*dim, inputs=cond)
+        x_transformed = x_transformed + cond_transform[:,:, None, None]
+
+    g1 = x_transformed[:,::4]
+    g2 = x_transformed[:,1::4]
+    g3 = x_transformed[:,2::4]
+    g4 = x_transformed[:,3::4]
+
+    out = T.tanh( (T.tanh(g4)*T.nnet.sigmoid(g3)) + (T.nnet.sigmoid(g2)*x) )*T.nnet.sigmoid(g1)
+
+    return out
+
+def condRMB(name, x, dim, cond = None, filter_size = 3):
+    x1 = lib.ops.conv2d.Conv2D(
+            name + '.x1',
+            input_dim=dim,
+            output_dim=dim,
+            filter_size=(1,1),
+            inputs= x
+            )
+
+    x2 = MU(name + '.x2', x1, dim, cond = cond, filter_size= filter_size)
+
+    x3 = MU(name + '.x3', x2, dim, cond = cond, filter_size= filter_size)
+
+    x4 = lib.ops.conv2d.Conv2D(
+            name + '.x4',
+            input_dim=dim,
+            output_dim=dim,
+            filter_size=(1,1),
+            inputs= x3
+        )
+
+    return x + x4
+
+
 
 
 
@@ -707,6 +756,34 @@ def Decoder_no_blind_conditioned_on_z(latents, images):
 
     return output
 
+def Decoder_condRMB(latents, images):
+    output = latents
+
+    _, X_next = next_stacks_gated(
+                images, images, N_CHANNELS, "Dec.PixInput",
+                global_conditioning = latents, filter_size = 7,
+                hstack = "hstack_a", residual = False
+                )
+
+    for i in xrange(PIXEL_CNN_LAYERS):
+        X_next = condRMB( "Dec.pixCNN_RMB_{}".format(i+1), X_next, DIM_PIX, cond = latents, filter_size = PIXEL_CNN_FILTER_SIZE)
+
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_next)
+    output = PixCNN_condGate(output, latents, DIM_PIX, name='Dec.PixOut1.cond' )
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=output)
+    output = PixCNN_condGate(output, latents, DIM_PIX, name='Dec.PixOut2.cond' )
+    # skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
+
 def Decoder_no_blind_conditioned_on_z_skip(latents, images):
     output = latents
 
@@ -778,6 +855,8 @@ elif args.decoder_algorithm == 'traditional':
     decode_algo = Decoder_traditional
 elif args.decoder_algorithm == 'traditional_exact':
     decode_algo = Decoder_traditional_exact
+elif args.decoder_algorithm == 'condRMB':
+    decode_algo = Decoder_condRMB
 else:
     assert False, "you should never be here!!"
 

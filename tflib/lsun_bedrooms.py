@@ -2,13 +2,22 @@ import sys
 sys.modules['theano'] = None
 
 import numpy as np
+import os
 
 from fuel.datasets.hdf5 import H5PYDataset
 from fuel.schemes import ShuffledScheme, SequentialScheme
 from fuel.streams import DataStream
 # from fuel.transformers.image import RandomFixedSizeCrop
+paths = [
+         '/home/ishaan/lsun_bedrooms_2727000_64px.hdf5', 
+         '/scratch/jvb-000-aa/kundan/data/lsun_bedrooms_2727000_64px.hdf5',
+         '/data/lisatmp4/lsun_bedrooms_64_hdf5/lsun_bedrooms_2727000_64px.hdf5'
+        ]
 
-PATH = '/home/ishaan/lsun_bedrooms_2727000_64px.hdf5'
+for p in paths:
+    if os.path.exists(p):
+        PATH = p
+        break
 
 from scipy.misc import imsave
 def color_grid_vis(X, nh, nw, save_path):
