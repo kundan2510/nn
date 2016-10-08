@@ -6,7 +6,7 @@ Ishaan Gulrajani
 import os, sys
 sys.path.append(os.getcwd())
 
-N_GPUS = 4
+N_GPUS = 1
 
 try: # This only matters on Ishaan's computer
     import experiment_tools
@@ -37,10 +37,26 @@ from scipy.misc import imsave
 import time
 import functools
 
+import argparse
+
+add_arg = argparse.add_argument
+
+add_arg('--model_weights', default=None, help = 'Pretrained model weights to load')
+add_arg('--algo', default='RMB', help = '"1" or "RMB"')
+
+args = argparse.parse_arguments()
+
+out_paths = ['/Tmp/kumarkun/pixel_vae', '/scratch/jvb-000-aa/kundan/pixel_vae']
+
+for p in out_paths:
+    if os.path.exists(p):
+        OUT_DIR_PREFIX = p
+        break
+
 DATASET = 'lsun_64' # mnist_256, lsun_32, lsun_64, imagenet_64
 SETTINGS = '64px' # mnist_256, 32px_small, 32px_big, 64px
-OUT_DIR = '/Tmp/kumarkun/pixel_vae/{}/{}/samples'.format(DATASET,SETTINGS)
-PARAM_DIR = '/Tmp/kumarkun/pixel_vae/{}/{}/params'.format(DATASET,SETTINGS)
+OUT_DIR = '{}/{}/{}/samples'.format(OUT_DIR_PREFIX, DATASET, SETTINGS)
+PARAM_DIR = '{}/{}/{}/params'.format(OUT_DIR_PREFIX, DATASET, SETTINGS)
 
 if not os.path.exists(OUT_DIR):
     os.makedirs(OUT_DIR)
@@ -765,6 +781,9 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                     eps = tf.random_normal(tf.shape(mu1))
                     latents1 = mu1 + (eps * sig1)
 
+                if args.algo == 'RMB':
+                    Dec1 = DecRMB
+
                 outputs1 = Dec1(latents1, scaled_images)
 
                 reconst_cost = tf.reduce_mean(
@@ -988,6 +1007,10 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         staircase=True
     )
 
+    if args.model_weights is not None:
+        tf.train.Saver().restore(session, args.model_weights)
+        print "Model restored with file {}".format(args.model_weights)
+
     lib.train_loop.train_loop(
         session=session,
         inputs=[total_iters, all_images],
@@ -1004,9 +1027,6 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         # profile=True
         # debug_mode=True
     )
-
-    # tf.train.Saver().restore(session, "/home/ishaan/experiments/resnet_mnist256_latentDim2_noPix_1470350613/params_iters100000_time7665.89819646.ckpt")
-    # print "Model restored."
 
     # all_zs = []
     # targets = []
