@@ -39,12 +39,14 @@ import functools
 
 import argparse
 
-add_arg = argparse.add_argument
+parser = argparse.ArgumentParser(description='Generating images pixel by pixel')
+
+add_arg = parser.add_argument
 
 add_arg('--model_weights', default=None, help = 'Pretrained model weights to load')
 add_arg('--algo', default='RMB', help = '"1" or "RMB"')
 
-args = argparse.parse_arguments()
+args = parser.parse_args()
 
 out_paths = ['/Tmp/kumarkun/pixel_vae', '/scratch/jvb-000-aa/kundan/pixel_vae']
 
