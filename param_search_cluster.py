@@ -10,16 +10,16 @@ add_arg('-v', '--vary', required = True)
 args = parser.parse_args()
 
 theano_flag = "THEANO_FLAGS=mode=FAST_RUN,device=gpu,floatX=float32,lib.cnmem=0.95"
-cluster_command = "jobdispatch --gpu --queue=gpu_1 --duree=20:00:00 --env={} --project=jvb-000-ag".format(theano_flag)
+cluster_command = "jobdispatch --gpu --queue=gpu_4 --duree=20:00:00 --env={} --project=jvb-000-ag".format(theano_flag)
 cmd = "python -u experiments/vae_pixel_2/mnist.py"
 
 assert(args.vary in ['alpha_iters', 'num_layers', 'filter_sizes', 'latent_dim', 'dim_pix', 'nothing' ])
 
-alpha_iters = [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000]
-num_layers = [6, 8, 10, 12, 14]
+alpha_iters = [5000, 6000, 7000]
+num_layers = [10, 12, 14, 16]
 filter_sizes = [5,7]
-latent_dim = [16, 20, 24, 32, 40, 48]
-dim_pix = [16, 32, 48, 64]
+latent_dim = [4, 8, 12, 16, 20, 24]
+dim_pix = [4, 8, 12, 16, 20, 24]
 
 vary_arr_dict = {'alpha_iters': alpha_iters, 'num_layers':num_layers, 'filter_sizes':filter_sizes, 'latent_dim':latent_dim, 'dim_pix':dim_pix}
 
