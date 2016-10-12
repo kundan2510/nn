@@ -44,7 +44,7 @@ parser = argparse.ArgumentParser(description='Generating images pixel by pixel')
 add_arg = parser.add_argument
 
 add_arg('--model_weights', default=None, help = 'Pretrained model weights to load')
-add_arg('--algo', default='RMB', help = '"1" or "RMB"')
+add_arg('--algo', default='1', help = '"1" or "RMB"')
 
 args = parser.parse_args()
 
