@@ -437,11 +437,14 @@ def RMB(name, input_dim, output_dim, inputs, inputs_stdev, filter_size, mask_typ
         output = conv_2(name+'.Conv2', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
 
     output = nonlinearity(output)
-    output = conv_2(name+'.Conv3_1x1', filter_size=1, mask_type=None, inputs=output, he_init=he_init)
+    output = lib.ops.conv2d.Conv2D(name+'.Conv3_1x1', input_dim=output_dim, output_dim=output_dim, filter_size=1, mask_type=None, inputs=output, he_init=he_init)
 
     return shortcut +  output
 
 def Enc1(images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     if PIXCNN_ONLY:
         batch_size = tf.shape(images)[0]
         return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_1, LATENTS1_WIDTH, LATENTS1_HEIGHT]), tf.float32)
@@ -462,6 +465,8 @@ def Enc1(images):
     return output
 
 def Dec1(latents, images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
 
     if PIXCNN_ONLY:
         batch_size = tf.shape(latents)[0]
@@ -505,6 +510,8 @@ def Dec1(latents, images):
     )
 
 def DecRMB(latents, images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
 
     if PIXCNN_ONLY:
         batch_size = tf.shape(latents)[0]
@@ -549,6 +556,9 @@ def DecRMB(latents, images):
 
 
 def Enc2(latents):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     if PIXCNN_ONLY:
         batch_size = tf.shape(latents)[0]
         return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_2]), tf.float32)
@@ -574,6 +584,9 @@ def Enc2(latents):
     return output
 
 def Dec2(latents, targets):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     if PIXCNN_ONLY:
         batch_size = tf.shape(latents)[0]
         return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH]), tf.float32)
@@ -616,6 +629,9 @@ def Dec2(latents, targets):
     return output
 
 def EncFull(images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     output = images
 
     if EMBED_INPUTS:
@@ -640,6 +656,9 @@ def EncFull(images):
     return output
 
 def DecFull(latents, images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     output = tf.clip_by_value(latents, -50., 50.)
 
     output = lib.ops.linear.Linear('DecFull.Input', input_dim=LATENT_DIM_2, output_dim=DIM_5, initialization='glorot', inputs=output)
@@ -783,8 +802,6 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                     eps = tf.random_normal(tf.shape(mu1))
                     latents1 = mu1 + (eps * sig1)
 
-                if args.algo == 'RMB':
-                    Dec1 = DecRMB
 
                 outputs1 = Dec1(latents1, scaled_images)
 
