@@ -299,13 +299,15 @@ def next_stacks_gated_skip(X_v, X_h, inp_dim, name, global_conditioning = None,
     X_h_next_ = lib.ops.conv2d.Conv2D(
             name + '.h2h',
             input_dim=DIM_PIX,
-            output_dim=2*DIM_PIX,
+            output_dim= 2*DIM_PIX,
             filter_size=(1,1),
             inputs= X_h_next
             )
 
     if residual:
         X_h_next = X_h_next_[:,::2,:,:] + X_h
+    else:
+    	X_h_next = X_h_next_[:,::2,:,:]
 
     return X_v_next_gated[:, :, 1:, :], X_h_next, X_h_next_[:,1::2,:,:]
 
