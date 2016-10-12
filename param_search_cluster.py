@@ -23,7 +23,7 @@ dim_pix = [4, 8, 12, 16, 20, 24]
 
 vary_arr_dict = {'alpha_iters': alpha_iters, 'num_layers':num_layers, 'filter_sizes':filter_sizes, 'latent_dim':latent_dim, 'dim_pix':dim_pix}
 
-params = {'alpha_iters': 6000, 'num_layers':12, 'filter_sizes':5, 'latent_dim':16, 'dim_pix':16, 'algo': 'cond_z_bias'}
+params = {'alpha_iters': 6000, 'num_layers':12, 'filter_sizes':5, 'latent_dim':16, 'dim_pix':16, 'algo': 'cond_z_bias_skip'}
 
 if args.vary == "nothing":
     for i in range(5):
