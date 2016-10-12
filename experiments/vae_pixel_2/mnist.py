@@ -850,7 +850,6 @@ def Decoder_no_blind_conditioned_on_z_skip(latents, images):
 
     skip_sum += to_skip
 
-    skip_outputs = []
     for i in xrange(PIXEL_CNN_LAYERS):
         X_v, X_h, to_skip = next_stacks_gated_skip(X_v, X_h, DIM_PIX, "Dec.Pix"+str(i+1), global_conditioning = latents, filter_size = PIXEL_CNN_FILTER_SIZE)
         skip_sum += to_skip
@@ -860,7 +859,7 @@ def Decoder_no_blind_conditioned_on_z_skip(latents, images):
     output = T.nnet.relu(output)
 
     # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
-    output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=2*DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=T.concatenate([output, skip_sum/floatX(PIXEL_CNN_LAYERS + 1)]))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=2*DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=T.concatenate([output, skip_sum/floatX(PIXEL_CNN_LAYERS + 1)], axis = 1))
     output = T.nnet.relu(output)
 
 
