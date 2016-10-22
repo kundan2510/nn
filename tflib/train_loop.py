@@ -12,6 +12,7 @@ import locale
 
 locale.setlocale(locale.LC_ALL, '')
 
+SAVE_FILE = "params_latest.ckpt"
 
 def train_loop(
     session,
@@ -98,7 +99,7 @@ def train_loop(
             lib.debug.print_all_stats(
                 feed_dict={sym:real for sym, real in zip(inputs, input_vals)}
             )
-
+    
     print "Initializing variables"
     session.run(tf.initialize_all_variables())
 
@@ -198,12 +199,17 @@ def train_loop(
                         callback(tag)
 
                     if save_params:
+<<<<<<< HEAD
                         if param_dir is not None:
                             path = "{}/params_{}.ckpt".format(param_dir, tag)
                         else:
                             path = "params_{}.ckpt".format(tag)
                         saver.save(session, path)
                         print "Saved params to {}".format(path)
+=======
+                        saver.save(session, SAVE_FILE)
+                        print "Saved params to {}".format(SAVE_FILE)
+>>>>>>> 956f7bde5c9a9122ce71a7e26c389ea0c5c684c6
 
                     last_gen += times['callback_every']
 

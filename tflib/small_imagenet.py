@@ -15,9 +15,14 @@ data_path = ''
 def make_generator(stream, batch_size):
     def get_epoch():
         images = np.zeros((batch_size, 3, 64, 64), dtype='int32')
-        for (imb,) in stream.get_epoch_iterator():
-
-            
+        files = range(n_files)
+        random_state = np.random.RandomState(42)
+        random_state.shuffle(files)
+        for n, i in enumerate(files):
+            image = scipy.misc.imread("{}/{}.png".format(path, str(i+1).zfill(len(str(n_files)))))
+            images[n % batch_size] = image.transpose(2,0,1)
+            if n > 0 and n % batch_size == 0:
+                yield (images,)
     return get_epoch
 
 def load(batch_size):
