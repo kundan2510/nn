@@ -2,17 +2,9 @@ import numpy as np
 import scipy.misc
 import time
 
-from fuel.streams import DataStream
-from fuel.schemes import ShuffledScheme
-from fuel.datasets.hdf5 import H5PYDataset
+BASE_DATA_PATH = '/scratch/jvb-000-aa/faruk/smallimagenet'
 
-data_path = ''
-
-
-
-"This files has many bugs right now. Need to be changed!!!"
-
-def make_generator(stream, batch_size):
+def make_generator(path, n_files, batch_size):
     def get_epoch():
         images = np.zeros((batch_size, 3, 64, 64), dtype='int32')
         files = range(n_files)
@@ -26,24 +18,13 @@ def make_generator(stream, batch_size):
     return get_epoch
 
 def load(batch_size):
-    data_imagenet = H5PYDataset(data_path, which_sets=('train',), sources=('features',))
-    train_data = DataStream(
-        data_imagenet,
-        iteration_scheme=ShuffledScheme(data_imagenet.num_examples, batch_size)
-    )
-
-    data_valid = H5PYDataset(data_path, which_sets=('valid',), sources=('features',))
-    dev_data = DataStream(
-        data_valid,
-        iteration_scheme=ShuffledScheme(data_valid.num_examples, batch_size)
-    )
     return (
-        make_generator(train_data),
-        make_generator(data_valid)
+        make_generator(os.path.join(BASE_DATA_PATH, 'train_64x64'), 1281149, batch_size),
+        make_generator(os.path.join(BASE_DATA_PATH, 'valid_64x64'), 49999, batch_size)
     )
 
 if __name__ == '__main__':
-
+    train_gen, valid_gen = load(64)
     t0 = time.time()
     for i, batch in enumerate(train_gen(), start=1):
         print "{}\t{}".format(str(time.time() - t0), batch[0][0,0,0,0])
