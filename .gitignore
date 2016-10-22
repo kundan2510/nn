@@ -7,3 +7,5 @@ experiment_tools.py
 *.py[cod]
 *.txt
 *.jpg
+*.orig
+LOGS/*
