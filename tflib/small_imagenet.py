@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.misc
 import time
+import os
 
 BASE_DATA_PATH = '/scratch/jvb-000-aa/faruk/smallimagenet'
 
