@@ -6,7 +6,6 @@ Ishaan Gulrajani
 import os, sys
 sys.path.append(os.getcwd())
 
-N_GPUS = 1
 
 try: # This only matters on Ishaan's computer
     import experiment_tools
@@ -45,8 +44,9 @@ add_arg = parser.add_argument
 
 add_arg('--optim', required=False, default='adam', help = "which optimizer to use")
 add_arg('--beta1', required=False, default=0.9, type=np.float32, help = "value of beta1 for adam")
-add_arg('--beta2', required=False, default=0.9, type=np.float32, help = "value of beta2 for adam")
+add_arg('--beta2', required=False, default=0.99, type=np.float32, help = "value of beta2 for adam")
 add_arg('--eps', required=False, default=1e-6, type=np.float32, help = "value of epsilon for numerical stability")
+add_arg('--num_gpu', required=False, default=1, type=int, help = "Number of GPUs to use")
 # add_arg('--lr', required=False, default=1e-3, type=np.float32, "Initial learning rate")
 
 args = parser.parse_args()
@@ -54,6 +54,7 @@ OPTIMIZER = args.optim
 BETA1 = args.beta1
 BETA2 = args.beta2
 EPS = args.eps
+N_GPUS = args.num_gpu
 # LEARNING_RATE = args.lr
 
 DATASET = 'lsun_64' # mnist_256, lsun_32, lsun_64, imagenet_64
