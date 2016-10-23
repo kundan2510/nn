@@ -9,7 +9,8 @@ from fuel.schemes import ShuffledScheme, SequentialScheme
 from fuel.streams import DataStream
 # from fuel.transformers.image import RandomFixedSizeCrop
 paths = [
-         '/home/ishaan/lsun_bedrooms_2727000_64px.hdf5', 
+         '/Tmp/kumarkun/lsun_bedrooms/lsun_bedrooms_2727000_64px.hdf5',
+         '/home/ishaan/lsun_bedrooms_2727000_64px.hdf5',
          '/scratch/jvb-000-aa/kundan/data/lsun_bedrooms_2727000_64px.hdf5',
          '/data/lisatmp4/lsun_bedrooms_64_hdf5/lsun_bedrooms_2727000_64px.hdf5'
         ]
@@ -17,6 +18,7 @@ paths = [
 for p in paths:
     if os.path.exists(p):
         PATH = p
+        print("Data will be loaded from {}".format(p))
         break
 
 from scipy.misc import imsave
@@ -49,12 +51,12 @@ def _make_stream(stream, bs, downsample):
                     result[i] += b
                     result[i] += c
                     result[i] += d
-                    result[i] /= 4                    
+                    result[i] /= 4
                     # print (a+b+c+d).dtype
                     # raise Exception()
                     # result[i] =  (a+b+c+d)/4
                 else:
-                    result[i] =  img[:64, :64, :]                
+                    result[i] =  img[:64, :64, :]
             # print "warning overfit mode"
             # color_grid_vis(result.transpose(0,3,1,2)[:,:3,:,:], 2, 2, 'reals.png')
             # while True:

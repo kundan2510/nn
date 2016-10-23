@@ -12,10 +12,6 @@ import time
 
 locale.setlocale(locale.LC_ALL, '')
 
-PARAMS_FILE = 'params.ckpt'
-TRAIN_LOOP_FILE = 'train_loop.pkl'
-TRAIN_OUTPUT_FILE = 'train_output.ndjson'
-
 def train_loop(
     session,
     inputs,
@@ -29,8 +25,13 @@ def train_loop(
     callback_every=None,
     inject_iteration=False,
     optimizer=tf.train.AdamOptimizer(),
-    save_every=1000
+    save_every=1000,
+    save_folder_prefix = '.'
     ):
+
+    PARAMS_FILE = os.path.join(save_folder_prefix, 'params.ckpt')
+    TRAIN_LOOP_FILE = os.path.join(save_folder_prefix, 'train_loop.pkl')
+    TRAIN_OUTPUT_FILE = os.path.join(save_folder_prefix, 'train_output.ndjson')
 
     prints = [('cost', cost)] + prints
 

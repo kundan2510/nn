@@ -16,7 +16,7 @@ except ImportError:
 
 import tflib as lib
 import tflib.debug
-import tflib.train_loop_2
+import tflib.train_loop
 import tflib.ops.kl_unit_gaussian
 import tflib.ops.kl_gaussian_gaussian
 import tflib.ops.conv2d
@@ -27,7 +27,7 @@ import tflib.ops.embedding
 
 import tflib.lsun_bedrooms
 import tflib.mnist_256
-import tflib.small_imagenet
+# import tflib.small_imagenet
 
 import numpy as np
 import tensorflow as tf
@@ -39,25 +39,34 @@ import functools
 
 import argparse
 
-parser = argparse.ArgumentParser("Generating Imagenet Experiments")
+parser = argparse.ArgumentParser(description='Generating images pixel by pixel')
 
 add_arg = parser.add_argument
 
-add_arg('--optim', required=False, default='adam', help = "which optimizer to use")
-add_arg('--beta1', required=False, default=0.9, type=np.float32, help = "value of beta1 for adam")
-add_arg('--beta2', required=False, default=0.9, type=np.float32, help = "value of beta2 for adam")
-add_arg('--eps', required=False, default=1e-6, type=np.float32, help = "value of epsilon for numerical stability")
-# add_arg('--lr', required=False, default=1e-3, type=np.float32, "Initial learning rate")
+add_arg('--model_weights', default=None, help = 'Pretrained model weights to load')
+add_arg('--algo', default='1', help = '"1" or "RMB"')
 
 args = parser.parse_args()
-OPTIMIZER = args.optim
-BETA1 = args.beta1
-BETA2 = args.beta2
-EPS = args.eps
-# LEARNING_RATE = args.lr
+
+out_paths = ['/Tmp/kumarkun/pixel_vae', '/scratch/jvb-000-aa/kundan/pixel_vae']
+
+for p in out_paths:
+    if os.path.exists(p):
+        OUT_DIR_PREFIX = p
+        break
 
 DATASET = 'lsun_64' # mnist_256, lsun_32, lsun_64, imagenet_64
 SETTINGS = '64px' # mnist_256, 32px_small, 32px_big, 64px
+OUT_DIR = '{}/{}/{}/samples'.format(OUT_DIR_PREFIX, DATASET, SETTINGS)
+PARAM_DIR = '{}/{}/{}/params'.format(OUT_DIR_PREFIX, DATASET, SETTINGS)
+
+if not os.path.exists(OUT_DIR):
+    os.makedirs(OUT_DIR)
+    print "Created {}".format(OUT_DIR)
+
+if not os.path.exists(PARAM_DIR):
+    os.makedirs(PARAM_DIR)
+    print "Created {}".format(PARAM_DIR)
 
 if SETTINGS == 'mnist_256':
     # two_level uses Enc1/Dec1 for the bottom level, Enc2/Dec2 for the top level
@@ -74,6 +83,7 @@ if SETTINGS == 'mnist_256':
     # These settings are good for a 'smaller' model that trains (up to 200K iters)
     # in ~1 day on a GTX 1080 (probably equivalent to 2 K40s).
     DIM_PIX_1    = 32
+    PIX1_FILT_SIZE = 5
     DIM_1        = 16
     DIM_2        = 32
     DIM_3        = 32
@@ -133,6 +143,7 @@ elif SETTINGS == '32px_small':
     # These settings are good for a 'smaller' model that trains (up to 200K iters)
     # in ~1 day on a GTX 1080 (probably equivalent to 2 K40s).
     DIM_PIX_1    = 128
+    PIX1_FILT_SIZE = 3
     DIM_1        = 64
     DIM_2        = 128
     DIM_3        = 256
@@ -164,7 +175,7 @@ elif SETTINGS == '32px_small':
     }
 
     VANILLA = False
-    LR = LEARNING_RATE
+    LR = 1e-3
 
     LR_DECAY_AFTER = 180000
     LR_DECAY_FACTOR = 1e-1
@@ -194,6 +205,7 @@ elif SETTINGS == '32px_big':
     # These settings are good for a 'smaller' model that trains (up to 200K iters)
     # in ~1 day on a GTX 1080 (probably equivalent to 2 K40s).
     DIM_PIX_1    = 256
+    PIX1_FILT_SIZE = 3
     DIM_1        = 128
     DIM_2        = 256
     DIM_3        = 512
@@ -254,6 +266,7 @@ elif SETTINGS == '64px':
     HIGHER_LEVEL_PIXCNN = True
 
     DIM_PIX_1    = 128
+    PIX1_FILT_SIZE = 7
     DIM_1        = 64
     DIM_2        = 128
     DIM_3        = 256
@@ -313,13 +326,10 @@ elif DATASET == 'lsun_64':
 elif DATASET == 'imagenet_64':
     train_data, dev_data = lib.small_imagenet.load(BATCH_SIZE)
 
-locals_var = locals().copy()
-save_folder_prefix = lib.get_MD5_log_hash(locals_var)
-
-lib.print_model_settings(locals_var, path=save_folder_prefix)
+lib.print_model_settings(locals().copy())
 
 DEVICES = ['/gpu:{}'.format(i) for i in xrange(N_GPUS)]
-# DEVICES = ['/gpu:0']
+DEVICES = ['/gpu:3']
 
 lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
@@ -330,14 +340,6 @@ def nonlinearity(x):
 
 def pixcnn_gated_nonlinearity(a, b):
     return tf.sigmoid(a) * tf.tanh(b)
-
-def SubpixelConv2D(*args, **kwargs):
-    kwargs['output_dim'] = 4*kwargs['output_dim']
-    output = lib.ops.conv2d.Conv2D(*args, **kwargs)
-    output = tf.transpose(output, [0,2,3,1])
-    output = tf.depth_to_space(output, 2)
-    output = tf.transpose(output, [0,3,1,2])
-    return output
 
 def ResidualBlock(name, input_dim, output_dim, inputs, inputs_stdev, filter_size, mask_type=None, resample=None, he_init=True):
     """
@@ -351,8 +353,15 @@ def ResidualBlock(name, input_dim, output_dim, inputs, inputs_stdev, filter_size
         conv_1        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=input_dim, output_dim=input_dim)
         conv_2        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=input_dim, output_dim=output_dim, stride=2)
     elif resample=='up':
-        conv_shortcut = SubpixelConv2D
-        conv_1        = functools.partial(SubpixelConv2D, input_dim=input_dim, output_dim=output_dim)
+        def conv_shortcut(*args, **kwargs):
+            kwargs['output_dim'] = 4*kwargs['output_dim']
+            output = lib.ops.conv2d.Conv2D(*args, **kwargs)
+            output = tf.transpose(output, [0,2,3,1])
+            old_shape = tf.shape(output)
+            output = tf.reshape(output, tf.pack([old_shape[0], 2*old_shape[1], 2*old_shape[2], old_shape[3]/4]))
+            output = tf.transpose(output, [0,3,1,2])
+            return output
+        conv_1        = functools.partial(lib.ops.deconv2d.Deconv2D, input_dim=input_dim, output_dim=output_dim)
         conv_2        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=output_dim, output_dim=output_dim)
     elif resample==None:
         conv_shortcut = lib.ops.conv2d.Conv2D
@@ -381,17 +390,70 @@ def ResidualBlock(name, input_dim, output_dim, inputs, inputs_stdev, filter_size
 
     return shortcut + (0.3 * output)
 
+def RMB(name, input_dim, output_dim, inputs, inputs_stdev, filter_size, mask_type=None, resample=None, he_init=True):
+    """
+    resample: None, 'down', or 'up'
+    """
+    if mask_type != None and resample != None:
+        raise Exception('Unsupported configuration')
+
+    if resample=='down':
+        conv_shortcut = functools.partial(lib.ops.conv2d.Conv2D, stride=2)
+        conv_1        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=input_dim, output_dim=input_dim)
+        conv_2        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=input_dim, output_dim=output_dim, stride=2)
+    elif resample=='up':
+        def conv_shortcut(*args, **kwargs):
+            kwargs['output_dim'] = 4*kwargs['output_dim']
+            output = lib.ops.conv2d.Conv2D(*args, **kwargs)
+            output = tf.transpose(output, [0,2,3,1])
+            old_shape = tf.shape(output)
+            output = tf.reshape(output, tf.pack([old_shape[0], 2*old_shape[1], 2*old_shape[2], old_shape[3]/4]))
+            output = tf.transpose(output, [0,3,1,2])
+            return output
+        conv_1        = functools.partial(lib.ops.deconv2d.Deconv2D, input_dim=input_dim, output_dim=output_dim)
+        conv_2        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=output_dim, output_dim=output_dim)
+    elif resample==None:
+        conv_shortcut = lib.ops.conv2d.Conv2D
+        conv_1        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=input_dim,  output_dim=output_dim)
+        conv_2        = functools.partial(lib.ops.conv2d.Conv2D, input_dim=output_dim, output_dim=output_dim)
+    else:
+        raise Exception('invalid resample value')
+
+    if output_dim==input_dim and resample==None:
+        shortcut = inputs # Identity skip-connection
+    else:
+        shortcut = conv_shortcut(name+'.Shortcut', input_dim=input_dim, output_dim=output_dim, filter_size=1, mask_type=mask_type, he_init=False, biases=False, inputs=inputs)
+
+    output = inputs
+    if mask_type == None:
+        output = nonlinearity(output)
+        output = conv_1(name+'.Conv1', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+        output = nonlinearity(output)
+        output = conv_2(name+'.Conv2', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+    else:
+        output = nonlinearity(output)
+        output_a = conv_1(name+'.Conv1A', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+        output_b = conv_1(name+'.Conv1B', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+        output = pixcnn_gated_nonlinearity(output_a, output_b)
+        output = conv_2(name+'.Conv2', filter_size=filter_size, mask_type=mask_type, inputs=output, he_init=he_init)
+
+    output = nonlinearity(output)
+    output = lib.ops.conv2d.Conv2D(name+'.Conv3_1x1', input_dim=output_dim, output_dim=output_dim, filter_size=1, mask_type=None, inputs=output, he_init=he_init)
+
+    return shortcut +  output
+
 def Enc1(images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     if PIXCNN_ONLY:
         batch_size = tf.shape(images)[0]
-        return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_1, LATENTS1_WIDTH, LATENTS1_HEIGHT]), tf.float32)
+        return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_1, LATENTS1_WIDTH, LATENTS1_HEIGHT]), tf.float16)
 
     output = images
 
     if SETTINGS == '64px':
-        # output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=5, inputs=output, he_init=False, stride=2)
-        output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=1, inputs=output, he_init=False)
-        output = ResidualBlock('Enc1.InputRes', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, resample='down', inputs_stdev=1, inputs=output)
+        output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=5, inputs=output, he_init=False, stride=2)
     else:
         output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=1, inputs=output, he_init=False)
 
@@ -404,10 +466,12 @@ def Enc1(images):
     return output
 
 def Dec1(latents, images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
 
     if PIXCNN_ONLY:
         batch_size = tf.shape(latents)[0]
-        output = tf.zeros(tf.pack([batch_size, DIM_1, HEIGHT, WIDTH]), tf.float32)
+        output = tf.zeros(tf.pack([batch_size, DIM_1, HEIGHT, WIDTH]), tf.float16)
     else:
         output = tf.clip_by_value(latents, -50., 50.)
         output = lib.ops.conv2d.Conv2D('Dec1.Input', input_dim=LATENT_DIM_1, output_dim=DIM_3, filter_size=1, inputs=output, he_init=False)
@@ -429,17 +493,11 @@ def Dec1(latents, images):
         # Warning! Because of the masked convolutions it's very important that masked_images comes first in this concat
         output = tf.concat(1, [masked_images, output])
 
+        output = ResidualBlock('Dec1.Pix2Res', input_dim=2*DIM_1,   output_dim=DIM_PIX_1, filter_size=PIX1_FILT_SIZE, mask_type=('b', N_CHANNELS), inputs_stdev=1,          inputs=output)
         if PIXCNN_ONLY:
             for i in xrange(9):
-                inp_dim = (2*DIM_1 if i==0 else DIM_PIX_1)
-                output = ResidualBlock('Dec1.ExtraPixCNN_'+str(i), input_dim=inp_dim, output_dim=DIM_PIX_1, filter_size=5, mask_type=('b', N_CHANNELS), inputs_stdev=1,          inputs=output)
-
-        if SETTINGS == '64px':
-            output = ResidualBlock('Dec1.Pix2Res', input_dim=2*DIM_1, output_dim=DIM_PIX_1, filter_size=5, mask_type=('b', N_CHANNELS), inputs_stdev=1, inputs=output)
-            output = ResidualBlock('Dec1.Pix3Res', input_dim=DIM_PIX_1,   output_dim=DIM_PIX_1, filter_size=3, mask_type=('b', N_CHANNELS), inputs_stdev=1, inputs=output)
-        else:
-            output = ResidualBlock('Dec1.Pix2Res', input_dim=2*DIM_1, output_dim=DIM_PIX_1, filter_size=3, mask_type=('b', N_CHANNELS), inputs_stdev=1, inputs=output)
-            output = ResidualBlock('Dec1.Pix3Res', input_dim=DIM_PIX_1, output_dim=DIM_PIX_1, filter_size=1, mask_type=('b', N_CHANNELS), inputs_stdev=1, inputs=output)
+                output = ResidualBlock('Dec1.Pix2Res_'+str(i), input_dim=DIM_PIX_1,   output_dim=DIM_PIX_1, filter_size=PIX1_FILT_SIZE, mask_type=('b', N_CHANNELS), inputs_stdev=1,          inputs=output)
+        output = ResidualBlock('Dec1.Pix3Res', input_dim=DIM_PIX_1, output_dim=DIM_PIX_1, filter_size=1, mask_type=('b', N_CHANNELS), inputs_stdev=np.sqrt(2), inputs=output)
 
         output = lib.ops.conv2d.Conv2D('Dec1.Out', input_dim=DIM_PIX_1, output_dim=256*N_CHANNELS, filter_size=1, mask_type=('b', N_CHANNELS), he_init=False, inputs=output)
 
@@ -452,10 +510,59 @@ def Dec1(latents, images):
         [0,2,3,4,1]
     )
 
-def Enc2(latents):
+def DecRMB(latents, images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     if PIXCNN_ONLY:
         batch_size = tf.shape(latents)[0]
-        return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_2]), tf.float32)
+        output = tf.zeros(tf.pack([batch_size, DIM_1, HEIGHT, WIDTH]), tf.float16)
+    else:
+        output = tf.clip_by_value(latents, -50., 50.)
+        output = lib.ops.conv2d.Conv2D('Dec1.Input', input_dim=LATENT_DIM_1, output_dim=DIM_3, filter_size=1, inputs=output, he_init=False)
+
+        output = ResidualBlock('Dec1.Res1', input_dim=DIM_3, output_dim=DIM_3, filter_size=3, resample=None, inputs_stdev=1, inputs=output)
+        output = ResidualBlock('Dec1.Res2', input_dim=DIM_3, output_dim=DIM_2, filter_size=3, resample='up', inputs_stdev=np.sqrt(2), inputs=output)
+        output = ResidualBlock('Dec1.Res3', input_dim=DIM_2, output_dim=DIM_1, filter_size=3, resample='up', inputs_stdev=np.sqrt(3), inputs=output)
+
+        if SETTINGS == '64px':
+            output = ResidualBlock('Dec1.Res4', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, resample='up', inputs_stdev=np.sqrt(3), inputs=output)
+
+    if PIXEL_LEVEL_PIXCNN:
+
+        masked_images = lib.ops.conv2d.Conv2D('Dec1.Pix1', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=7, inputs=images, mask_type=('a', N_CHANNELS), he_init=False)
+
+        # Make the stdev of output and masked_images match
+        output /= np.sqrt(4)
+
+        # Warning! Because of the masked convolutions it's very important that masked_images comes first in this concat
+        output = tf.concat(1, [masked_images, output])
+
+        output = ResidualBlock('Dec1.Pix2Res', input_dim=2*DIM_1,   output_dim=DIM_PIX_1, filter_size=PIX1_FILT_SIZE, mask_type=('b', N_CHANNELS), inputs_stdev=1,          inputs=output)
+        if PIXCNN_ONLY:
+            for i in xrange(9):
+                output = ResidualBlock('Dec1.Pix2Res_'+str(i), input_dim=DIM_PIX_1,   output_dim=DIM_PIX_1, filter_size=PIX1_FILT_SIZE, mask_type=('b', N_CHANNELS), inputs_stdev=1,          inputs=output)
+        output = ResidualBlock('Dec1.Pix3Res', input_dim=DIM_PIX_1, output_dim=DIM_PIX_1, filter_size=1, mask_type=('b', N_CHANNELS), inputs_stdev=np.sqrt(2), inputs=output)
+
+        output = lib.ops.conv2d.Conv2D('Dec1.Out', input_dim=DIM_PIX_1, output_dim=256*N_CHANNELS, filter_size=1, mask_type=('b', N_CHANNELS), he_init=False, inputs=output)
+
+    else:
+
+        output = lib.ops.conv2d.Conv2D('Dec1.Out', input_dim=DIM_1, output_dim=256*N_CHANNELS, filter_size=1, he_init=False, inputs=output)
+
+    return tf.transpose(
+        tf.reshape(output, [-1, 256, N_CHANNELS, HEIGHT, WIDTH]),
+        [0,2,3,4,1]
+    )
+
+
+def Enc2(latents):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
+    if PIXCNN_ONLY:
+        batch_size = tf.shape(latents)[0]
+        return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_2]), tf.float16)
 
     output = tf.clip_by_value(latents, -50., 50.)
 
@@ -478,9 +585,12 @@ def Enc2(latents):
     return output
 
 def Dec2(latents, targets):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     if PIXCNN_ONLY:
         batch_size = tf.shape(latents)[0]
-        return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH]), tf.float32)
+        return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH]), tf.float16)
 
     output = tf.clip_by_value(latents, -50., 50.)
     output = lib.ops.linear.Linear('Dec2.Input', input_dim=LATENT_DIM_2, output_dim=DIM_5, inputs=output)
@@ -520,6 +630,9 @@ def Dec2(latents, targets):
     return output
 
 def EncFull(images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     output = images
 
     if EMBED_INPUTS:
@@ -544,6 +657,9 @@ def EncFull(images):
     return output
 
 def DecFull(latents, images):
+    if args.algo == "RMB":
+        ResidualBlock = RMB
+
     output = tf.clip_by_value(latents, -50., 50.)
 
     output = lib.ops.linear.Linear('DecFull.Input', input_dim=LATENT_DIM_2, output_dim=DIM_5, initialization='glorot', inputs=output)
@@ -598,18 +714,18 @@ def DecFull(latents, images):
         [0,2,3,4,1]
     )
 
-with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
+with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
     total_iters = tf.placeholder(tf.int32, shape=None, name='total_iters')
     all_images = tf.placeholder(tf.int32, shape=[None, N_CHANNELS, HEIGHT, WIDTH], name='all_images')
 
     def split(mu_and_logsig):
         mu, logsig = tf.split(1, 2, mu_and_logsig)
-        sig = 0.5 * (tf.nn.softsign(logsig)+1)
+        sig = tf.nn.softsign(logsig)+1
         logsig = tf.log(sig)
         return mu, logsig, sig
 
     def clamp_logsig_and_sig(logsig, sig):
-        floor = 1. - tf.minimum(1., tf.cast(total_iters, 'float32') / BETA_ITERS)
+        floor = 1. - tf.minimum(1., tf.cast(total_iters, 'float16') / BETA_ITERS)
         log_floor = tf.log(floor)
         return tf.maximum(logsig, log_floor), tf.maximum(sig, floor)
 
@@ -620,7 +736,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
     for device, images in zip(DEVICES, split_images):
         with tf.device(device):
 
-            scaled_images = (tf.cast(images, 'float32') - 128.) / 64.
+            scaled_images = (tf.cast(images, 'float16') - 128.) / 64.
             if EMBED_INPUTS:
                 embedded_images = lib.ops.embedding.Embedding('Embedding', 256, DIM_1, images)
                 embedded_images = tf.transpose(embedded_images, [0,4,1,2,3])
@@ -658,11 +774,11 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
 
                 # An alpha of exactly 0 can sometimes cause inf/nan values, so we're
                 # careful to avoid it.
-                alpha = tf.minimum(1., tf.cast(total_iters+1, 'float32') / ALPHA1_ITERS) * KL_PENALTY
+                alpha = tf.minimum(1., tf.cast(total_iters+1, 'float16') / ALPHA1_ITERS) * KL_PENALTY
 
                 kl_cost_1 = tf.reduce_mean(
                     lib.ops.kl_unit_gaussian.kl_unit_gaussian(
-                        mu1, 
+                        mu1,
                         logsig1,
                         sig1
                     )
@@ -686,6 +802,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
                 else:
                     eps = tf.random_normal(tf.shape(mu1))
                     latents1 = mu1 + (eps * sig1)
+
 
                 outputs1 = Dec1(latents1, scaled_images)
 
@@ -718,12 +835,12 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
 
                 # An alpha of exactly 0 can sometimes cause inf/nan values, so we're
                 # careful to avoid it.
-                alpha1 = tf.minimum(1., tf.cast(total_iters+1, 'float32') / ALPHA1_ITERS) * KL_PENALTY
-                alpha2 = tf.minimum(1., tf.cast(total_iters+1, 'float32') / ALPHA2_ITERS) * alpha1# * KL_PENALTY
+                alpha1 = tf.minimum(1., tf.cast(total_iters+1, 'float16') / ALPHA1_ITERS) * KL_PENALTY
+                alpha2 = tf.minimum(1., tf.cast(total_iters+1, 'float16') / ALPHA2_ITERS) * alpha1# * KL_PENALTY
 
                 kl_cost_1 = tf.reduce_mean(
                     lib.ops.kl_gaussian_gaussian.kl_gaussian_gaussian(
-                        mu1, 
+                        mu1,
                         logsig1,
                         sig1,
                         mu1_prior,
@@ -734,7 +851,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
 
                 kl_cost_2 = tf.reduce_mean(
                     lib.ops.kl_unit_gaussian.kl_unit_gaussian(
-                        mu2, 
+                        mu2,
                         logsig2,
                         sig2
                     )
@@ -769,7 +886,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
         def enc_fn(_images):
             return session.run(latents1, feed_dict={images: _images, total_iters: 99999})
 
-        sample_fn_latents1 = np.random.normal(size=(8, LATENT_DIM_2)).astype('float32')
+        sample_fn_latents1 = np.random.normal(size=(8, LATENT_DIM_2)).astype('float16')
 
         def generate_and_save_samples(tag):
             def color_grid_vis(X, nh, nw, save_path):
@@ -785,12 +902,12 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
 
             print "Generating latents1"
 
-            latents1_copied = np.zeros((64, LATENT_DIM_2), dtype='float32')
+            latents1_copied = np.zeros((64, LATENT_DIM_2), dtype='float16')
             for i in xrange(8):
                 latents1_copied[i::8] = sample_fn_latents1
 
             samples = np.zeros(
-                (64, N_CHANNELS, HEIGHT, WIDTH), 
+                (64, N_CHANNELS, HEIGHT, WIDTH),
                 dtype='int32'
             )
 
@@ -803,10 +920,10 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
 
             print "Saving samples"
             color_grid_vis(
-                samples, 
-                8, 
-                8, 
-                'samples_{}.png'.format(tag)
+                samples,
+                8,
+                8,
+                '{}/samples_{}.png'.format(OUT_DIR, tag)
             )
 
 
@@ -818,60 +935,19 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
         ch_sym = tf.placeholder(tf.int32, shape=None)
         y_sym = tf.placeholder(tf.int32, shape=None)
         x_sym = tf.placeholder(tf.int32, shape=None)
-        logits_sym = tf.reshape(tf.slice(outputs1, tf.pack([0, ch_sym, y_sym, x_sym, 0]), tf.pack([-1, 1, 1, 1, -1])), [-1, 256])
+        logits = tf.reshape(tf.slice(outputs1, tf.pack([0, ch_sym, y_sym, x_sym, 0]), tf.pack([-1, 1, 1, 1, -1])), [-1, 256])
+        dec1_fn_out = tf.multinomial(logits, 1)[:, 0]
+        def dec1_fn(_latents, _targets, _ch, _y, _x):
+            return session.run(dec1_fn_out, feed_dict={latents1: _latents, images: _targets, ch_sym: _ch, y_sym: _y, x_sym: _x, total_iters: 99999})
 
-        def dec1_logits_fn(_latents, _targets, _ch, _y, _x):
-            return session.run(logits_sym,
-                               feed_dict={latents1: _latents,
-                                          images: _targets,
-                                          ch_sym: _ch,
-                                          y_sym: _y,
-                                          x_sym: _x,
-                                          total_iters: 99999})
+        def enc_fn(_images):
+            return session.run([latents1, latents2], feed_dict={images: _images, total_iters: 99999})
 
-        N_SAMPLES = 64
-        HOLD_Z2_CONSTANT = False
-        HOLD_EPSILON_1_CONSTANT = False
-        HOLD_EPSILON_PIXELS_CONSTANT = False
-
-        # Draw z2 from N(0,I)
-        z2 = np.random.normal(size=(N_SAMPLES, LATENT_DIM_2)).astype('float32')
-        if HOLD_Z2_CONSTANT:
-          z2[:] = z2[0][None]
-
-        # Draw epsilon_1 from N(0,I)
-        epsilon_1 = np.random.normal(size=(N_SAMPLES, LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH)).astype('float32')
-        if HOLD_EPSILON_1_CONSTANT:
-          epsilon_1[:] = epsilon_1[0][None]
-
-        # Draw epsilon_pixels from U[0,1]
-        epsilon_pixels = np.random.uniform(size=(N_SAMPLES, N_CHANNELS, HEIGHT, WIDTH))
-        if HOLD_EPSILON_PIXELS_CONSTANT:
-          epsilon_pixels[:] = epsilon_pixels[0][None]
-
+        sample_fn_latents2 = np.random.normal(size=(32, LATENT_DIM_2)).astype('float16')
+        sample_fn_latents2[1::2] = sample_fn_latents2[0::2]
+        sample_fn_latent1_randn = np.random.normal(size=(LATENTS1_HEIGHT,LATENTS1_WIDTH,32,LATENT_DIM_1))
 
         def generate_and_save_samples(tag):
-            # Draw z1 autoregressively using z2 and epsilon1
-            print "Generating z1"
-            z1 = np.zeros((N_SAMPLES, LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH), dtype='float32')
-            for y in xrange(LATENTS1_HEIGHT):
-              for x in xrange(LATENTS1_WIDTH):
-                z1_prior_mu, z1_prior_logsig = dec2_fn(z2, z1)
-                z1[:,:,y,x] = z1_prior_mu[:,:,y,x] + np.exp(z1_prior_logsig[:,:,y,x]) * epsilon_1[:,:,y,x]
-
-            # Draw pixels (the images) autoregressively using z1 and epsilon_x
-            print "Generating pixels"
-            pixels = np.zeros((N_SAMPLES, N_CHANNELS, HEIGHT, WIDTH)).astype('int32')
-            for y in xrange(HEIGHT):
-                for x in xrange(WIDTH):
-                    for ch in xrange(N_CHANNELS):
-                        logits = dec1_logits_fn(z1, pixels, ch, y, x)
-                        probs = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
-                        probs = probs / np.sum(probs, axis=-1, keepdims=True)
-                        cdf = np.cumsum(probs, axis=-1)
-                        pixels[:,ch,y,x] = np.argmax(cdf >= epsilon_pixels[:,ch,y,x,None], axis=-1)
-
-            # Save them
             def color_grid_vis(X, nh, nw, save_path):
                 # from github.com/Newmu
                 X = X.transpose(0,2,3,1)
@@ -883,12 +959,46 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
                     img[j*h:j*h+h, i*w:i*w+w, :] = x
                 imsave(save_path, img)
 
-            print "Saving"
-            rows = int(np.sqrt(N_SAMPLES))
-            while N_SAMPLES % rows != 0:
-                rows -= 1
+            print "Generating latents1"
+
+            latents1 = np.zeros(
+                (32, LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH),
+                dtype='float16'
+            )
+
+            for y in xrange(8):
+                for x in xrange(8):
+                    for block in xrange(PIX_2_N_BLOCKS):
+                        mu, logsig = dec2_fn(sample_fn_latents2, latents1)
+                        mu = mu[:,:,y,x]
+                        logsig = logsig[:,:,y,x]
+                        z = mu + ( np.exp(logsig) * sample_fn_latent1_randn[y,x] )
+                        latents1[:,block::PIX_2_N_BLOCKS,y,x] = z[:,block::PIX_2_N_BLOCKS]
+
+            latents1_copied = np.zeros(
+                (64, LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH),
+                dtype='float16'
+            )
+            latents1_copied[0::2] = latents1
+            latents1_copied[1::2] = latents1
+
+            samples = np.zeros(
+                (64, N_CHANNELS, HEIGHT, WIDTH),
+                dtype='int32'
+            )
+
+            print "Generating samples"
+            for y in xrange(HEIGHT):
+                for x in xrange(WIDTH):
+                    for ch in xrange(N_CHANNELS):
+                        next_sample = dec1_fn(latents1_copied, samples, ch, y, x)
+                        samples[:,ch,y,x] = next_sample
+
+            print "Saving samples"
             color_grid_vis(
-                pixels, rows, N_SAMPLES/rows, 
+                samples,
+                8,
+                8,
                 'samples_{}.png'.format(tag)
             )
 
@@ -896,15 +1006,15 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
 
     if MODE == 'one_level':
         prints=[
-            ('alpha', alpha), 
-            ('reconst', reconst_cost), 
+            ('alpha', alpha),
+            ('reconst', reconst_cost),
             ('kl1', kl_cost_1)
         ]
     elif MODE == 'two_level':
         prints=[
             ('alpha1', alpha1),
             ('alpha2', alpha2),
-            ('reconst', reconst_cost), 
+            ('reconst', reconst_cost),
             ('kl1', kl_cost_1),
             ('kl2', kl_cost_2),
         ]
@@ -917,19 +1027,43 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
         staircase=True
     )
 
+    if args.model_weights is not None:
+        tf.train.Saver().restore(session, args.model_weights)
+        print "Model restored with file {}".format(args.model_weights)
 
-    lib.train_loop_2.train_loop(
+    lib.train_loop.train_loop(
         session=session,
         inputs=[total_iters, all_images],
-        inject_iteration=True,
+        inject_total_iters=True,
         cost=full_cost,
-        stop_after=TIMES['stop_after'],
         prints=prints,
-        optimizer=tf.train.AdamOptimizer(decayed_lr, beta1=BETA1, beta2=BETA2, epsilon=EPS),
+        optimizer=tf.train.AdamOptimizer(decayed_lr),
         train_data=train_data,
         test_data=dev_data,
         callback=generate_and_save_samples,
-        callback_every=TIMES['callback_every'],
-        test_every=TIMES['test_every'],
-        save_folder_prefix = save_folder_prefix
+        times=TIMES,
+        save_params=True,
+        param_dir = PARAM_DIR,
+        # profile=True
+        # debug_mode=True
     )
+
+    # all_zs = []
+    # targets = []
+    # for (_images,_targets) in test_data():
+    #     _z = enc_fn(_images)
+    #     all_zs.append(_z)
+    #     targets.append(_targets)
+    # _z = np.concatenate(all_zs, axis=0)
+    # targets = np.concatenate(targets, axis=0)
+    # import matplotlib
+    # matplotlib.use('Agg')
+    # import matplotlib.pyplot as plt
+    # x, y = _z.T
+    # # x = np.random.rand(N)
+    # # y = np.random.rand(N)
+    # colors = targets
+    # print colors[:50]
+    # area = 5 #np.pi * (15 * np.random.rand(N))**2  # 0 to 15 point radiuses
+    # plt.scatter(x, y, s=area, c=colors, alpha=0.5)
+    # plt.savefig('plot.png')

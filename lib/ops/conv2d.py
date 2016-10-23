@@ -10,7 +10,7 @@ def enable_default_weightnorm():
     global _default_weightnorm
     _default_weightnorm = True
 
-def Conv2D(name, input_dim, output_dim, filter_size, inputs, he_init=True, mask_type=None, stride=1, weightnorm=None, biases=True):
+def Conv2D(name, input_dim, output_dim, filter_size, inputs, he_init=True, mask_type=None, mode = 'half', stride=1, weightnorm=None, biases=True):
     """
     inputs: tensor of shape (batch size, num channels, height, width)
     mask_type: one of None, 'a', 'b', 'hstack_a', 'hstack', 'vstack'
@@ -19,6 +19,7 @@ def Conv2D(name, input_dim, output_dim, filter_size, inputs, he_init=True, mask_
     """
     if mask_type is not None:
         mask_type, mask_n_channels = mask_type
+        assert(mode == "half")
 
     if isinstance(filter_size, int): 
         filter_size = (filter_size, filter_size)
@@ -111,7 +112,7 @@ def Conv2D(name, input_dim, output_dim, filter_size, inputs, he_init=True, mask_
     result = T.nnet.conv2d(
         inputs, 
         filters, 
-        border_mode='half',
+        border_mode=mode,
         filter_flip=False,
         subsample=(stride,stride)
     )
