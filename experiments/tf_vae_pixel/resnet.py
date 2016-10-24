@@ -248,12 +248,13 @@ elif SETTINGS == '64px':
     # one_level uses EncFull/DecFull for the bottom (and only) level
     MODE = 'two_level'
 
-    EMBED_INPUTS = False
+    EMBED_INPUTS = True
 
     # Turn on/off the bottom-level PixelCNN in Dec1/DecFull
     PIXEL_LEVEL_PIXCNN = True
     HIGHER_LEVEL_PIXCNN = True
 
+    DIM_EMBED    = 16
     DIM_PIX_1    = 128
     DIM_1        = 64
     DIM_2        = 128
@@ -287,7 +288,7 @@ elif SETTINGS == '64px':
     }
 
     VANILLA = False
-    LR = 5e-4
+    LR = 1e-3
 
     LR_DECAY_AFTER = 180000
     LR_DECAY_FACTOR = 2e-1
@@ -390,11 +391,17 @@ def Enc1(images):
     output = images
 
     if SETTINGS == '64px':
-        # output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=5, inputs=output, he_init=False, stride=2)
-        output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=1, inputs=output, he_init=False)
-        output = ResidualBlock('Enc1.InputRes', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, resample='down', inputs_stdev=1, inputs=output)
+        if EMBED_INPUTS:
+            output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS*DIM_EMBED, output_dim=DIM_1, filter_size=1, inputs=output, he_init=False)
+            output = ResidualBlock('Enc1.InputRes', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, resample='down', inputs_stdev=1, inputs=output)
+        else:
+            output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=1, inputs=output, he_init=False)
+            output = ResidualBlock('Enc1.InputRes', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, resample='down', inputs_stdev=1, inputs=output)
     else:
-        output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=1, inputs=output, he_init=False)
+        if EMBED_INPUTS:
+            output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS*DIM_1, output_dim=DIM_1, filter_size=1, inputs=output, he_init=False)
+        else:
+            output = lib.ops.conv2d.Conv2D('Enc1.Input', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=1, inputs=output, he_init=False)
 
     output = ResidualBlock('Enc1.Res1', input_dim=DIM_1, output_dim=DIM_2, filter_size=3, resample='down', inputs_stdev=1,          inputs=output)
     output = ResidualBlock('Enc1.Res2', input_dim=DIM_2, output_dim=DIM_3, filter_size=3, resample='down', inputs_stdev=np.sqrt(2), inputs=output)
@@ -422,7 +429,10 @@ def Dec1(latents, images):
 
     if PIXEL_LEVEL_PIXCNN:
 
-        masked_images = lib.ops.conv2d.Conv2D('Dec1.Pix1', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=7, inputs=images, mask_type=('a', N_CHANNELS), he_init=False)
+        if EMBED_INPUTS:
+            masked_images = lib.ops.conv2d.Conv2D('Dec1.Pix1', input_dim=N_CHANNELS*DIM_EMBED, output_dim=DIM_1, filter_size=7, inputs=images, mask_type=('a', N_CHANNELS), he_init=False)
+        else:
+            masked_images = lib.ops.conv2d.Conv2D('Dec1.Pix1', input_dim=N_CHANNELS, output_dim=DIM_1, filter_size=7, inputs=images, mask_type=('a', N_CHANNELS), he_init=False)
 
         # Make the stdev of output and masked_images match
         output /= np.sqrt(4)
@@ -463,19 +473,12 @@ def Enc2(latents):
     output = lib.ops.conv2d.Conv2D('Enc2.Input', input_dim=LATENT_DIM_1, output_dim=DIM_3, filter_size=1, inputs=output, he_init=False)
 
     output = ResidualBlock('Enc2.Res1', input_dim=DIM_3, output_dim=DIM_4, filter_size=3, resample='down', inputs_stdev=1,          he_init=True, inputs=output)
-    # output = ResidualBlock('Enc2.Res2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, resample=None,   inputs_stdev=np.sqrt(2), he_init=True, inputs=output)
+    output = ResidualBlock('Enc2.Res2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, resample=None,   inputs_stdev=np.sqrt(2), he_init=True, inputs=output)
 
-    output = tf.reshape(output, [-1, 4*4*DIM_4])
-    output = tf.nn.elu(output)
-    output = lib.ops.linear.Linear('Enc2.ConvToFC', input_dim=4*4*DIM_4, output_dim=DIM_5, inputs=output)
-    output = tf.nn.elu(output)
+    # global mean pool and linear map to output
+    output = tf.reduce_mean(output, reduction_indices=[2,3])
+    output = lib.ops.linear.Linear('Enc2.Output', input_dim=DIM_4, output_dim=2*LATENT_DIM_2, inputs=output, initialization='glorot')
 
-    # We implement an FC residual block as a conv over a 1x1 featuremap
-    # output = tf.reshape(output, [-1, DIM_5, 1, 1])
-    # output = ResidualBlock('Enc2.Res3', input_dim=DIM_5, output_dim=DIM_5, filter_size=1, inputs_stdev=np.sqrt(3), he_init=True, inputs=output)
-    # output = tf.reshape(output, [-1, DIM_5])
-
-    output = lib.ops.linear.Linear('Enc2.Output', input_dim=DIM_5, output_dim=2*LATENT_DIM_2, inputs=output, initialization='glorot')
     return output
 
 def Dec2(latents, targets):
@@ -484,22 +487,13 @@ def Dec2(latents, targets):
         return tf.zeros(tf.pack([batch_size, 2*LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH]), tf.float32)
 
     output = tf.clip_by_value(latents, -50., 50.)
-    output = lib.ops.linear.Linear('Dec2.Input', input_dim=LATENT_DIM_2, output_dim=DIM_5, inputs=output)
-    output = tf.nn.elu(output)
 
-    # output = tf.reshape(output, [-1, DIM_5, 1, 1])
-    # output = ResidualBlock('Dec2.Res1', input_dim=DIM_5, output_dim=DIM_5, filter_size=1, inputs_stdev=1, he_init=True, inputs=output)
-    # output = tf.reshape(output, [-1, DIM_5])
+    # linear map to DIM_4 and repeat across 4x4 spatial grid
+    output = lib.ops.linear.Linear('Dec2.Input', input_dim=LATENT_DIM_2, output_dim=DIM_4, inputs=output)
+    output = tf.tile(tf.reshape(output, [-1, DIM_4, 1, 1]), [1, 1, 4, 4])
 
-    output = lib.ops.linear.Linear('Dec2.FCToConv', input_dim=DIM_5, output_dim=4*4*DIM_4, inputs=output)
-
-    output = tf.reshape(output, [-1, DIM_4, 4, 4])
-
-    # output = ResidualBlock('Dec2.Res2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, resample=None, inputs_stdev=np.sqrt(2), he_init=True, inputs=output)
+    output = ResidualBlock('Dec2.Res1', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, resample=None, inputs_stdev=np.sqrt(3), he_init=True, inputs=output)
     output = ResidualBlock('Dec2.Res3', input_dim=DIM_4, output_dim=DIM_3, filter_size=3, resample='up', inputs_stdev=np.sqrt(3), he_init=True, inputs=output)
-
-    if WIDTH == 28:
-        output = tf.slice(output, [0, 0, 0, 0], [-1, -1, 7, 7])
 
     if HIGHER_LEVEL_PIXCNN:
 
@@ -605,11 +599,14 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
 
     def split(mu_and_logsig):
         mu, logsig = tf.split(1, 2, mu_and_logsig)
+        # Restrict sigma to [0,1] and mu to [-2, 2]
+        mu = 2. * tf.tanh(mu / 2.)
         sig = 0.5 * (tf.nn.softsign(logsig)+1)
         logsig = tf.log(sig)
         return mu, logsig, sig
-
+ 
     def clamp_logsig_and_sig(logsig, sig):
+        # Early during training (see BETA_ITERS), stop sigma from going too low
         floor = 1. - tf.minimum(1., tf.cast(total_iters, 'float32') / BETA_ITERS)
         log_floor = tf.log(floor)
         return tf.maximum(logsig, log_floor), tf.maximum(sig, floor)
@@ -623,9 +620,9 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
 
             scaled_images = (tf.cast(images, 'float32') - 128.) / 64.
             if EMBED_INPUTS:
-                embedded_images = lib.ops.embedding.Embedding('Embedding', 256, DIM_1, images)
+                embedded_images = lib.ops.embedding.Embedding('Embedding', 256, DIM_EMBED, images)
                 embedded_images = tf.transpose(embedded_images, [0,4,1,2,3])
-                embedded_images = tf.reshape(embedded_images, [-1, N_CHANNELS*DIM_1, HEIGHT, WIDTH])
+                embedded_images = tf.reshape(embedded_images, [-1, DIM_EMBED*N_CHANNELS, HEIGHT, WIDTH])
 
             if MODE == 'one_level':
 
@@ -679,8 +676,16 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
             elif MODE == 'two_level':
                 # Layer 1
 
-                mu_and_logsig1 = Enc1(scaled_images)
+                if EMBED_INPUTS:
+                    mu_and_logsig1 = Enc1(embedded_images)
+                else:
+                    mu_and_logsig1 = Enc1(scaled_images)
                 mu1, logsig1, sig1 = split(mu_and_logsig1)
+
+                if mu1.get_shape().as_list()[2] != LATENTS1_HEIGHT:
+                    raise Exception("LATENTS1_HEIGHT doesn't match mu1 shape!")
+                if mu1.get_shape().as_list()[3] != LATENTS1_WIDTH:
+                    raise Exception("LATENTS1_WIDTH doesn't match mu1 shape!")
 
                 if VANILLA:
                     latents1 = mu1
@@ -688,7 +693,10 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
                     eps = tf.random_normal(tf.shape(mu1))
                     latents1 = mu1 + (eps * sig1)
 
-                outputs1 = Dec1(latents1, scaled_images)
+                if EMBED_INPUTS:
+                    outputs1 = Dec1(latents1, embedded_images)
+                else:
+                    outputs1 = Dec1(latents1, scaled_images)
 
                 reconst_cost = tf.reduce_mean(
                     tf.nn.sparse_softmax_cross_entropy_with_logits(
@@ -910,6 +918,8 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
             ('kl2', kl_cost_2),
         ]
 
+    # lr_multiplier = tf.placeholder(tf.float32, shape=None, name='lr_multiplier')
+
     decayed_lr = tf.train.exponential_decay(
         LR,
         total_iters,
@@ -917,7 +927,6 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=False)) as session:
         LR_DECAY_FACTOR,
         staircase=True
     )
-
 
     lib.train_loop_2.train_loop(
         session=session,
