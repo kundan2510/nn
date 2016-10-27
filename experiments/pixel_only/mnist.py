@@ -12,6 +12,7 @@ try: # This only matters on Ishaan's computer
 except ImportError:
     pass
 
+import time
 import lib
 import lib.train_loop
 import lib.mnist_binarized
@@ -225,6 +226,10 @@ def Decoder_pixelCNN(images):
 
     return output
 
+def auto_regress(shape):
+    images = T.zeros(shape)
+
+
 total_iters = T.iscalar('total_iters')
 images = T.tensor4('images') # shape: (batch size, n channels, height, width)
 
@@ -253,12 +258,67 @@ train_data, dev_data, test_data = lib.mnist_binarized.load(
     TEST_BATCH_SIZE
 )
 
+def get_receptive_area(h,w, receptive_field, i, j):
+    if i < receptive_field:
+        i_min = 0
+        i_end = 2*receptive_field + 1
+        i_res = i
+    elif i >= (h - receptive_field):
+        i_end = h
+        i_min = h - (2*receptive_field + 1)
+        i_res = i - i_min
+    else:
+        i_min = i - receptive_field
+        i_end = i + receptive_field + 1
+        i_res = i - i_min
+
+    if j < receptive_field:
+        j_min = 0
+        j_end = 2*receptive_field + 1
+        j_res = j
+    elif j >= (w - receptive_field):
+        j_end = w
+        j_min = w - (2*receptive_field + 1)
+        j_res = j - j_min
+    else:
+        j_min = j - receptive_field
+        j_end = j + receptive_field + 1
+        j_res = j - j_min
+
+    return i_min, i_end, i_res, j_min, j_end, j_res
+
+def generate_with_only_receptive_field(samples):
+    h, w =  HEIGHT, WIDTH
+    receptive_field = 3 + ((PIXEL_CNN_FILTER_SIZE/2)*PIXEL_CNN_LAYERS)
+
+    t0 = time.time()
+    for j in xrange(HEIGHT):
+        for k in xrange(WIDTH):
+            for i in xrange(N_CHANNELS):
+                j_min, j_end, j_res, k_min, k_end, k_res = get_receptive_area(receptive_field, j,k)
+                res = binarize(sample_fn(samples[:,:,j_min:j_end, k_min:k_end]))
+                samples[:, i, j, k] = res[:, i, j_res, k_res]
+
+    t1 = time.time()
+    print("Time taken is {:.4f}s".format(t1 - t0))
+
+    return samples
+
+def binarize(images):
+        """
+        Stochastically binarize values in [0, 1] by treating them as p-values of
+        a Bernoulli distribution.
+        """
+        return (
+            np.random.uniform(size=images.shape) < images
+        ).astype(theano.config.floatX)
+
 def generate_and_save_samples(tag):
 
     costs = []
-    for (images,) in test_data():
-        costs.append(eval_fn(images))
-    print "test cost: {}".format(np.mean(costs))
+    # for (images,) in test_data():
+    #     costs.append(eval_fn(images))
+    # print "test cost: {}".format(np.mean(costs))
 
     def save_images(images, filename):
         """images.shape: (batch, n channels, height, width)"""
@@ -270,29 +330,27 @@ def generate_and_save_samples(tag):
         image = scipy.misc.toimage(images, cmin=0.0, cmax=1.0)
         image.save('{}/{}_{}.jpg'.format(OUT_DIR, filename, tag))
 
-    def binarize(images):
-        """
-        Stochastically binarize values in [0, 1] by treating them as p-values of
-        a Bernoulli distribution.
-        """
-        return (
-            np.random.uniform(size=images.shape) < images
-        ).astype(theano.config.floatX)
-
-
     samples = np.zeros(
         (100, N_CHANNELS, HEIGHT, WIDTH), 
         dtype=theano.config.floatX
     )
 
+    t0 = time.time()
     for j in xrange(HEIGHT):
         for k in xrange(WIDTH):
             for i in xrange(N_CHANNELS):
                 next_sample = binarize(sample_fn(samples))
                 samples[:, i, j, k] = next_sample[:, i, j, k]
-
+    t1 = time.time()
     save_images(samples, 'samples')
+    print("Time taken is {:.4f}s".format(t1 - t0))
 
+
+    samples = generate_with_only_receptive_field(samples)
+    save_images(samples, 'samples_receptive_field')
+
+
+generate_and_save_samples("initial_samples")
 lib.train_loop.train_loop(
     inputs=[images],
     inject_total_iters=False,

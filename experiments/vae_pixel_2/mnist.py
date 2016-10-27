@@ -3,8 +3,16 @@ VAE + Pixel CNN
 Ishaan Gulrajani
 """
 
+"""
+Modified by Kundan Kumar
+
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 10 -fs 3 -algo cond_z_bias -dpx 16 -ldim 16
+"""
+
 import os, sys
 sys.path.append(os.getcwd())
+
+import time
 
 import argparse
 
@@ -64,9 +72,9 @@ lib.ops.linear.enable_default_weightnorm()
 
 OUT_DIR = '/Tmp/kumarkun/mnist_pixel_RMB' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
 
-#if not os.path.isdir(OUT_DIR):
-#    os.makedirs(OUT_DIR)
-#    print "Created directory {}".format(OUT_DIR)
+if not os.path.isdir(OUT_DIR):
+   os.makedirs(OUT_DIR)
+   print "Created directory {}".format(OUT_DIR)
 
 def floatX(num):
     if theano.config.floatX == 'float32':
@@ -782,6 +790,74 @@ def Decoder_no_blind_z_everywhere(latents, images):
 
     return output
 
+# def auto_regress_generation(fn, latents, images):
+#     samples = T.zeros_like(images)
+
+#     for j in xrange(HEIGHT):
+#         for k in xrange(WIDTH):
+#             for i in xrange(N_CHANNELS):
+#                 T.inc_subtensor()
+def get_receptive_area(h,w, receptive_field, i, j):
+    if i < receptive_field:
+        i_min = 0
+        i_end = 2*receptive_field + 1
+        i_res = i
+    elif i >= (h - receptive_field):
+        i_end = h
+        i_min = h - (2*receptive_field + 1)
+        i_res = i - i_min
+    else:
+        i_min = i - receptive_field
+        i_end = i + receptive_field + 1
+        i_res = i - i_min
+
+    if j < receptive_field:
+        j_min = 0
+        j_end = 2*receptive_field + 1
+        j_res = j
+    elif j >= (w - receptive_field):
+        j_end = w
+        j_min = w - (2*receptive_field + 1)
+        j_res = j - j_min
+    else:
+        j_min = j - receptive_field
+        j_end = j + receptive_field + 1
+        j_res = j - j_min
+
+    return i_min, i_end, i_res, j_min, j_end, j_res
+
+def binarize(images):
+    """
+    Stochastically binarize values in [0, 1] by treating them as p-values of
+    a Bernoulli distribution.
+    """
+    return (
+        np.random.uniform(size=images.shape) < images
+    ).astype(theano.config.floatX)
+
+def generate_with_only_receptive_field(fn, samples, latents):
+    h, w =  HEIGHT, WIDTH
+    receptive_field = 3 + ((PIXEL_CNN_FILTER_SIZE/2)*PIXEL_CNN_LAYERS)
+
+    next_samples = samples
+
+    t0 = time.time()
+    for j in xrange(HEIGHT):
+        for k in xrange(WIDTH):
+            for i in xrange(N_CHANNELS):
+                j_min, j_end, j_res, k_min, k_end, k_res = get_receptive_area(h, w, receptive_field, j,k)
+                res = fn(latents, next_samples[:,:,j_min:j_end, k_min:k_end])
+                next_samples[:, i, j, k] = binarize(res[:, i, j_res, k_res])
+                samples[:, i, j, k] = res[:, i, j_res, k_res]
+
+    t1 = time.time()
+    print("With only receptive field time taken is {:.4f}s".format(t1 - t0))
+
+    return samples
+
+
+
+
 def Decoder_no_blind_conditioned_on_z(latents, images):
     output = latents
 
@@ -983,7 +1059,7 @@ def generate_and_save_samples(tag):
     for (images,) in test_data():
         costs.append(eval_fn(images, ALPHA_ITERS+1))
     print "test cost: {}".format(np.mean(costs))
-    return
+    # return
     def save_images(images, filename, i = None):
         """images.shape: (batch, n channels, height, width)"""
         if i is not None:
@@ -1001,34 +1077,40 @@ def generate_and_save_samples(tag):
         image = scipy.misc.toimage(images, cmin=0.0, cmax=1.0)
         image.save('{}/{}_{}.jpg'.format(OUT_DIR, filename, new_tag))
 
-
-    def binarize(images):
-        """
-        Stochastically binarize values in [0, 1] by treating them as p-values of
-        a Bernoulli distribution.
-        """
-        return (
-            np.random.uniform(size=images.shape) < images
-        ).astype(theano.config.floatX)
-
     latents = np.random.normal(size=(10, LATENT_DIM))
     latents = np.repeat(latents, 10, axis=0)
 
     latents = latents.astype(theano.config.floatX)
 
+    # samples = np.zeros(
+    #     (100, N_CHANNELS, HEIGHT, WIDTH),
+    #     dtype=theano.config.floatX
+    # )
+
+    # next_sample = samples
+
+    # t0 = time.time()
+    # for j in xrange(HEIGHT):
+    #     for k in xrange(WIDTH):
+    #         for i in xrange(N_CHANNELS):
+    #             samples_p_value = sample_fn(latents, next_sample)
+    #             next_sample = binarize(samples_p_value)
+    #             samples[:, i, j, k] = next_sample[:, i, j, k]
+
+    # t1 = time.time()
+    # print("Time taken for generation normally {:.4f}".format(t1 - t0))
+
+    # save_images(samples_p_value, 'samples_pval_repeated_')
     samples = np.zeros(
         (100, N_CHANNELS, HEIGHT, WIDTH),
         dtype=theano.config.floatX
     )
 
-    for j in xrange(HEIGHT):
-        for k in xrange(WIDTH):
-            for i in xrange(N_CHANNELS):
-                samples_p_value = sample_fn(latents, samples)
-                next_sample = binarize(samples_p_value)
-                samples[:, i, j, k] = next_sample[:, i, j, k]
+    samples = generate_with_only_receptive_field(sample_fn, samples, latents)
+    save_images(samples, 'samples_pval_')
 
-    save_images(samples_p_value, 'samples_pval_repeated_')
+generate_and_save_samples("initial_Samples")
+# exit()
 
 print("Training")
 
