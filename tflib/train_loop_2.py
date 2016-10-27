@@ -90,11 +90,13 @@ def train_loop(
 
     train_generator = train_data()
 
+    saver = tf.train.Saver()
+
     if os.path.isfile(TRAIN_LOOP_FILE):
         print "Resuming interrupted train loop session"
         with open(TRAIN_LOOP_FILE, 'r') as f:
             _vars = pickle.load(f)
-        tf.train.Saver().restore(session, PARAMS_FILE)
+        saver.restore(session, PARAMS_FILE)
 
         print "Fast-fowarding dataset generator"
         dataset_iters = 0
@@ -106,8 +108,9 @@ def train_loop(
                 train_generator.next()
             dataset_iters += 1
     else:
-        print "Initializing variables"
+        print "Initializing variables..."
         session.run(tf.initialize_all_variables())
+        print "done!"
 
     train_output_entries = [[]]
     
@@ -133,14 +136,13 @@ def train_loop(
                 print_str += "{}:{:.4f}\t".format(k,v)
         print print_str[:-1] # omit the last \t
 
-
     def save_train_output_and_params():
         print "Saving output and params..."
 
         # Saving weights takes a while. To minimize risk of interruption during
         # a critical segment, we write weights to a temp file, delete the old
         # file, and rename the temp file.
-        tf.train.Saver().save(session, PARAMS_FILE + '_tmp')
+        saver.save(session, PARAMS_FILE + '_tmp')
         if os.path.isfile(PARAMS_FILE):
             os.remove(PARAMS_FILE)
         os.rename(PARAMS_FILE+'_tmp', PARAMS_FILE)
