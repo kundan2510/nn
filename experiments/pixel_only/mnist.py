@@ -2,7 +2,9 @@
 VAE + Pixel CNN
 Ishaan Gulrajani
 """
-
+"""
+Usage: 
+"""
 import os, sys
 sys.path.append(os.getcwd())
 
@@ -129,7 +131,7 @@ def next_stacks(X_v, X_h, inp_dim, name,
             name + '.hstack', 
             input_dim= inp_dim, 
             output_dim= 2*DIM_PIX, 
-            filter_size= (1,filter_size), 
+            filter_size= (filter_size,filter_size), 
             inputs= X_h, 
             mask_type=(hstack, N_CHANNELS)
         )
@@ -148,6 +150,37 @@ def next_stacks(X_v, X_h, inp_dim, name,
         X_h_next = X_h_next + X_h
 
     return X_v_next_gated[:, :, 1:, :], X_h_next
+
+def next_stacks_only_h(X_h, inp_dim, name, 
+                global_conditioning = None, 
+                filter_size = 3, 
+                hstack = 'hstack', 
+                residual = True
+            ):
+    X_h_next = lib.ops.conv2d.Conv2D(
+            name + '.hstack', 
+            input_dim= inp_dim, 
+            output_dim= 2*DIM_PIX, 
+            filter_size= (filter_size,filter_size), 
+            inputs= X_h, 
+            mask_type=(hstack, N_CHANNELS)
+        )
+
+    X_h_next = PixCNNGate(X_h_next)
+
+    X_h_next = lib.ops.conv2d.Conv2D(
+            name + '.h2h', 
+            input_dim=DIM_PIX, 
+            output_dim=DIM_PIX, 
+            filter_size=(1,1), 
+            inputs= X_h_next
+            )
+
+    if residual == True:
+        X_h_next = X_h_next + X_h
+
+    return X_h_next
+
 
 def next_stacks_gated(X_v, X_h, inp_dim, name, global_conditioning = None,
                                              filter_size = 3, hstack = 'hstack', residual = True):
@@ -226,6 +259,32 @@ def Decoder_pixelCNN(images):
 
     return output
 
+def Decoder_pixelCNN_single_stack(images):
+
+    X_h = next_stacks_only_h(
+                images, N_CHANNELS, "Dec.PixInput", 
+                filter_size = 7, 
+                hstack = "hstack_a", residual = False
+                )
+
+    for i in xrange(PIXEL_CNN_LAYERS):
+        X_h = next_stacks_only_h(X_h, DIM_PIX, "Dec.Pix"+str(i+1), filter_size = PIXEL_CNN_FILTER_SIZE)
+    
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_h)
+    output = PixCNNGate(output)
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=output)
+    output = PixCNNGate(output)
+    # skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+
+    return output
+
 
 def get_every_layer_functions():
     functions = []
@@ -264,11 +323,46 @@ def get_every_layer_functions():
 
     return functions
 
+def get_every_layer_functions_only_h():
+    functions = []
+    img = T.tensor4('img')
+    X_h = next_stacks_only_h(
+                img, N_CHANNELS, "Dec.PixInput", 
+                filter_size = 7, 
+                hstack = "hstack_a", residual = False
+                )
+    print "Compiling layer 0 ......."
+    functions.append(theano.function([img], X_h))
 
+    for i in xrange(PIXEL_CNN_LAYERS):
+        X_h_inp = T.tensor4('X_h_inp')
+        X_h = next_stacks_only_h(X_h_inp, DIM_PIX, "Dec.Pix"+str(i+1), filter_size = PIXEL_CNN_FILTER_SIZE)
+        print "Compiling layer {} .......".format(i+1)
+        functions.append(theano.function([X_h_inp],  X_h))
+
+    X_h = T.tensor4('X_h')
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=X_h)
+    output = PixCNNGate(output)
+    # skip_outputs.append(output)
+
+    # output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=2*DIM_PIX, filter_size=1, inputs=output)
+    output = PixCNNGate(output)
+    # skip_outputs.append(output)
+
+    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
+    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
+    output = T.nnet.sigmoid(output)
+    print "Compiling output function :)"
+    functions.append(theano.function([X_h], output))
+
+
+    return functions
 
 # def auto_regress(shape):
 #     images = T.zeros(shape)
-
+# Decoder = Decoder_pixelCNN
+Decoder = Decoder_pixelCNN_single_stack
 
 total_iters = T.iscalar('total_iters')
 images = T.tensor4('images') # shape: (batch size, n channels, height, width)
@@ -276,7 +370,7 @@ images = T.tensor4('images') # shape: (batch size, n channels, height, width)
 # Theano bug: NaNs unless I pass 2D tensors to binary_crossentropy
 reconst_cost = T.nnet.binary_crossentropy(
     T.nnet.sigmoid(
-        Decoder_pixelCNN(images).reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
+        Decoder(images).reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
     ),
     images.reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
 ).mean(axis=0).sum()
@@ -285,7 +379,7 @@ cost = reconst_cost
 
 sample_fn = theano.function(
     [images],
-    T.nnet.sigmoid(Decoder_pixelCNN(images))
+    T.nnet.sigmoid(Decoder(images))
 )
 
 eval_fn = theano.function(
@@ -380,7 +474,7 @@ def get_dependence_field(i,j, X, num_channels, batch_size,  filter_size):
     return region
 
 #########################
-##### Test Region preictors
+##### Test Region predictors
 # samples = np.arange(28*28).reshape((1,1,28,28)).astype(theano.config.floatX)
 
 # print get_dependence_field(0,0,samples, 1, 1, 5)[0,0]
@@ -392,7 +486,8 @@ def get_dependence_field(i,j, X, num_channels, batch_size,  filter_size):
 #########################
 
 print "creating functions..."
-layer_functions = get_every_layer_functions()
+# layer_functions = get_every_layer_functions()
+layer_functions = get_every_layer_functions_only_h()
 
 assert(len(layer_functions) == (PIXEL_CNN_LAYERS + 2))
 
@@ -421,34 +516,75 @@ def faster_generation(functions):
     for j in xrange(HEIGHT):
         for k in xrange(WIDTH):
             for i in xrange(N_CHANNELS):
-                samples_slice = get_dependence_field(j, k, binarized_samples, N_CHANNELS, 100, 7)
+                samples_slice = get_dependence_field(j, k, binarized_samples, N_CHANNELS, 100, 9)
                 X_v_next, X_h_next = functions[0](samples_slice)
 
-                temp_Xh_s[0][:,:,j,k] = X_h_next[:,:,3,3]
-                temp_Xv_s[0][:,:,j,k] = X_v_next[:,:,3,3]
+                temp_Xh_s[0][:,:,j,k] = X_h_next[:,:,4,4]
+                temp_Xv_s[0][:,:,j,k] = X_v_next[:,:,4,4]
 
                 for l in range(PIXEL_CNN_LAYERS):
                     curr_fun = functions[l+1]
-                    X_h_temp = get_dependence_field(j, k, temp_Xh_s[l], DIM_PIX, 100, PIXEL_CNN_FILTER_SIZE)
-                    X_v_temp = get_dependence_field(j, k, temp_Xv_s[l], DIM_PIX, 100, PIXEL_CNN_FILTER_SIZE)
+                    X_h_temp = get_dependence_field(j, k, temp_Xh_s[l], DIM_PIX, 100, PIXEL_CNN_FILTER_SIZE+2)
+                    X_v_temp = get_dependence_field(j, k, temp_Xv_s[l], DIM_PIX, 100, PIXEL_CNN_FILTER_SIZE+2)
                     
                     X_v_next, X_h_next = curr_fun(X_v_temp, X_h_temp)
 
-                    temp_Xh_s[l+1][:,:,j,k] = X_h_next[:,:,PIXEL_CNN_FILTER_SIZE//2,PIXEL_CNN_FILTER_SIZE//2]
-                    temp_Xv_s[l+1][:,:,j,k] = X_v_next[:,:,PIXEL_CNN_FILTER_SIZE//2,PIXEL_CNN_FILTER_SIZE//2]
+                    temp_Xh_s[l+1][:,:,j,k] = X_h_next[:,:,((PIXEL_CNN_FILTER_SIZE//2) + 1),((PIXEL_CNN_FILTER_SIZE//2) + 1)]
+                    temp_Xv_s[l+1][:,:,j,k] = X_v_next[:,:,((PIXEL_CNN_FILTER_SIZE//2) + 1),((PIXEL_CNN_FILTER_SIZE//2) + 1)]
 
 
                 sampler = functions[-1]
 
                 output =  sampler(temp_Xh_s[-1][:,:,j:j+1,k:k+1])
-                print output.shape
 
                 binarized_samples[:,i,j,k] = binarize(output)[:,i,0,0]
                 samples[:, i, j, k] = output[:, i, 0, 0]
 
     return samples
     
+def faster_generation_only_h(functions):
+    assert(N_CHANNELS == 1), "Current version supports only 1 input_channel i.e. dependency amongst the channels cannoit be modelled"
+    
+    h, w = HEIGHT, WIDTH
 
+    samples = np.zeros(
+        (100, N_CHANNELS, HEIGHT, WIDTH), 
+        dtype=theano.config.floatX
+    )
+    binarized_samples = samples.copy()
+
+    temp_Xh_s = []
+    
+    for i in xrange(PIXEL_CNN_LAYERS + 1):
+        temp_Xh_s.append(
+                    np.zeros((100, DIM_PIX, HEIGHT, WIDTH), dtype=theano.config.floatX)
+                )
+
+    for j in xrange(HEIGHT):
+        for k in xrange(WIDTH):
+            for i in xrange(N_CHANNELS):
+                samples_slice = get_dependence_field(j, k, binarized_samples, N_CHANNELS, 100, 9)
+                X_h_next = functions[0](samples_slice)
+
+                temp_Xh_s[0][:,:,j,k] = X_h_next[:,:,4,4]
+
+                for l in range(PIXEL_CNN_LAYERS):
+                    curr_fun = functions[l+1]
+                    X_h_temp = get_dependence_field(j, k, temp_Xh_s[l], DIM_PIX, 100, PIXEL_CNN_FILTER_SIZE+2)
+                    X_h_next = curr_fun(X_h_temp)
+
+                    temp_Xh_s[l+1][:,:,j,k] = X_h_next[:,:,((PIXEL_CNN_FILTER_SIZE//2) + 1),((PIXEL_CNN_FILTER_SIZE//2) + 1)]
+                    
+
+                sampler = functions[-1]
+
+                output =  sampler(temp_Xh_s[-1][:,:,j:j+1,k:k+1])
+
+                binarized_samples[:,i,j,k] = binarize(output)[:,i,0,0]
+                samples[:, i, j, k] = output[:, i, 0, 0]
+
+    return samples
+    
 
 def binarize(images):
         """
@@ -492,7 +628,7 @@ def generate_and_save_samples(tag):
     print("Time taken with slowest generation is {:.4f}s".format(t1 - t0))
 
     t0 = time.time()
-    samples =  faster_generation(layer_functions)
+    samples =  faster_generation_only_h(layer_functions)
     t1 = time.time()
     print("Time taken with faster generation is {:.4f}s".format(t1 - t0))
 
