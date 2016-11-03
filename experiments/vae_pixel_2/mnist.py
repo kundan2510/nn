@@ -6,7 +6,7 @@ Ishaan Gulrajani
 """
 Modified by Kundan Kumar
 
-Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 10 -fs 3 -algo cond_z_bias -dpx 16 -ldim 16
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 10 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16
 """
 
 import os, sys
