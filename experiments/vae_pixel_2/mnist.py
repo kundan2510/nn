@@ -1054,12 +1054,26 @@ train_data, dev_data, test_data = lib.mnist_binarized.load(
     100
 )
 
+test_d = [i for (i,) in test_data()]
+
+print len(test_d)
+print test_d[0].shape
+
+def get_batch(d):
+    for b in d:
+        yield b
+
+def get_single(d):
+    for b in d:
+        for i in b:
+            yield [i]
+
 
 
 def generate_and_save_samples(tag):
 
     costs = []
-    for (images,) in test_data():
+    for images in get_batch(test_d):
         costs.append(eval_fn(images, ALPHA_ITERS+1))
     print "test cost: {}".format(np.mean(costs))
     # return
@@ -1122,7 +1136,7 @@ generate_and_save_samples("initial_Samples_after_loading_params")
 ###############Importance Sampling###########
 log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
 
-k_ = 1
+k_ = 50
 
 def log_mean_exp(x, axis=1):
     m = T.max(x,  keepdims=True)
@@ -1152,7 +1166,7 @@ _, _, test_data_new = lib.mnist_binarized.load(
     1
 )
 i = 0
-for (images,) in test_data_new():
+for images in get_single(test_d):
     batch_ = np.tile(images, [k_, 1, 1, 1])
     res = lik_fn(batch_)
     # import ipdb; ipdb.set_trace()
