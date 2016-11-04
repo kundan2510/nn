@@ -71,7 +71,7 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-OUT_DIR = '/Tmp/alitaiga/mnist_pixel_RMB' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
+OUT_DIR = '/Tmp/kumarkun/mnist_pixel_RMB' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
 
 if not os.path.isdir(OUT_DIR):
    os.makedirs(OUT_DIR)
@@ -1007,7 +1007,7 @@ else:
 log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
 
 def log_mean_exp(x, axis=1):
-    m = T.max(x, keepdims=True)
+    m = T.max(x,  keepdims=True)
     return m + T.log(T.mean(T.exp(x - m), keepdims=True))
 
 def log_lik(samples, mean, log_sigma):
@@ -1043,10 +1043,6 @@ alpha = T.minimum(
     T.cast(total_iters, theano.config.floatX) / lib.floatX(ALPHA_ITERS)
 )
 
-vae_bound = reconst_cost + reg_cost
-loglikelihood = log_lik(latents, 0., 0.) - reconst_cost - log_lik(latents, mu, log_sigma)
-loglikelihood = -log_mean_exp(loglikelihood)
-
 if VANILLA:
     cost = reconst_cost
 else:
@@ -1073,7 +1069,9 @@ def generate_and_save_samples(tag):
 
     costs = []
     for (images,) in test_data():
-        costs.append(eval_fn(images, ALPHA_ITERS+1))
+        out = eval_fn(images, ALPHA_ITERS+1)
+        print out
+        costs.append(out)
     print "test cost: {}".format(np.mean(costs))
     # return
     lib.save_params(os.path.join(OUT_DIR, tag + "_params.pkl"))
@@ -1126,7 +1124,7 @@ def generate_and_save_samples(tag):
     # samples = generate_with_only_receptive_field(sample_fn, samples, latents)
     # save_images(samples, 'samples_pval_')
 
-#generate_and_save_samples("initial_Samples")
+# generate_and_save_samples("yet_initial_Samples")
 # exit()
 
 # print("Training")
@@ -1149,14 +1147,23 @@ def generate_and_save_samples(tag):
 # )
 
 k_ = 1
-print("Evaluating loglikelihood with k=".format(k_))
+print("Evaluating loglikelihood with k={}".format(k_))
 SAVE_FILE = "file_name"
-path = '/Tmp/alitaiga/'#pixelvae_2016-10-19/'
-lib.load_params(path+'iters60500_time8744.44959402_params.pkl')
+path = OUT_DIR
+lib.load_params(os.path.join(path, 'iters100000_time14396.23296_params.pkl'))
+print "Generating"
+generate_and_save_samples("yet_initial_Samples")
 
+
+vae_bound = reconst_cost + reg_cost
+log_lik_latent_prior = log_lik(latents, 0., 0.)
+log_lik_latent_posterior = log_lik(latents, mu, log_sigma)
+loglikelihood_normal = log_lik_latent_prior - reconst_cost - log_lik_latent_posterior
+
+loglikelihood = -log_mean_exp(loglikelihood_normal)
 lik_fn = theano.function(
-    [images, total_iters],
-    loglikelihood
+    [images],
+    [loglikelihood, vae_bound, reconst_cost, reg_cost, log_lik_latent_prior, log_lik_latent_posterior, loglikelihood_normal]
 )
 
 
@@ -1164,7 +1171,12 @@ total_lik = []
 generator = test_data()
 for i, batch in enumerate(generator):
     batch = np.tile(batch[0], [k_, 1, 1, 1])
-    total_lik.append(lik_fn([batch, ALPHA_ITERS+1])[0])
-    if i % 100 == 0:
+    res = lik_fn(batch)
+    import ipdb; ipdb.set_trace()
+
+    total_lik.append(lik_fn(batch))
+    if i % 2 == 0:
         print((i, np.mean(total_lik)))
+        import ipdb; ipdb.set_trace()
 print('Likelihood estimationn with k={}: {}'.format(k_, np.mean(total_lik)))
+generate_and_save_samples("yet_initial_Samples")

@@ -102,7 +102,7 @@ N_CHANNELS = 1
 HEIGHT = 28
 WIDTH = 28
 
-TEST_BATCH_SIZE = 100
+TEST_BATCH_SIZE = 1
 TIMES = ('iters', 500, 500*400, 500, 400*500, 2*ALPHA_ITERS)
 
 lib.print_model_settings(locals().copy())
@@ -1051,8 +1051,10 @@ eval_fn = theano.function(
 
 train_data, dev_data, test_data = lib.mnist_binarized.load(
     BATCH_SIZE,
-    TEST_BATCH_SIZE
+    100
 )
+
+
 
 def generate_and_save_samples(tag):
 
@@ -1111,9 +1113,62 @@ def generate_and_save_samples(tag):
     # samples = generate_with_only_receptive_field(sample_fn, samples, latents)
     # save_images(samples, 'samples_pval_')
 
-generate_and_save_samples("initial_Samples")
+# generate_and_save_samples("initial_Samples")
+lib.load_params(os.path.join(OUT_DIR, 'iters100000_time14396.23296_params.pkl'))
+generate_and_save_samples("initial_Samples_after_loading_params")
 # exit()
 
+#############################################
+###############Importance Sampling###########
+log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
+
+def log_mean_exp(x, axis=1):
+    m = T.max(x,  keepdims=True)
+    return m + T.log(T.mean(T.exp(x - m), keepdims=True))
+
+def log_lik(samples, mean, log_sigma):
+    return -log2pi*T.cast(samples.shape[1], 'float32') / 2 -  \
+        T.sum(T.sqr((samples-mean)/T.exp(log_sigma)) + 2*log_sigma, axis=1) / 2
+k_ = 1
+
+vae_bound = reconst_cost + reg_cost
+log_lik_latent_prior = log_lik(latents, 0., 0.)
+log_lik_latent_posterior = log_lik(latents, mu, log_sigma)
+loglikelihood_normal = log_lik_latent_prior - reconst_cost - log_lik_latent_posterior
+
+loglikelihood = -log_mean_exp(loglikelihood_normal)
+lik_fn = theano.function(
+    [images],
+    [loglikelihood, vae_bound, reconst_cost, reg_cost, log_lik_latent_prior, log_lik_latent_posterior, loglikelihood_normal]
+)
+
+
+total_lik = []
+_, _, test_data_new = lib.mnist_binarized.load(
+    BATCH_SIZE,
+    1
+)
+i = 0
+for (images,) in test_data_new():
+    batch_ = np.tile(images, [k_, 1, 1, 1])
+    res = lik_fn(batch_)
+    # import ipdb; ipdb.set_trace()
+
+    total_lik.append(res[0])
+    if i % 100 == 0:
+        print((i, np.mean(total_lik)))
+        # import ipdb; ipdb.set_trace()
+
+    i += 1
+
+
+##############################################
+##############################################
+
+print "Final likelihood", np.mean(total_lik)
+
+
+exit()
 print("Training")
 
 lib.train_loop.train_loop(
