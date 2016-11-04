@@ -1020,12 +1020,12 @@ reconst_cost = T.nnet.binary_crossentropy(
         decode_algo(latents, images).reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
     ),
     images.reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
-).mean(axis=0).sum()
+).sum(axis=1) #change it for training
 
 reg_cost = lib.ops.kl_unit_gaussian.kl_unit_gaussian(
     mu,
     log_sigma
-).mean(axis=0).sum()
+).sum(axis=1)
 
 alpha = T.minimum(
     1,
@@ -1046,7 +1046,7 @@ sample_fn = theano.function(
 
 eval_fn = theano.function(
     [images, total_iters],
-    cost
+    cost.mean()
 )
 
 train_data, dev_data, test_data = lib.mnist_binarized.load(
@@ -1122,19 +1122,20 @@ generate_and_save_samples("initial_Samples_after_loading_params")
 ###############Importance Sampling###########
 log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
 
+k_ = 1
+
 def log_mean_exp(x, axis=1):
     m = T.max(x,  keepdims=True)
-    return m + T.log(T.mean(T.exp(x - m), keepdims=True))
+    return m + T.log(T.sum(T.exp(x - m), keepdims=True)) - T.log(k_)
 
 def log_lik(samples, mean, log_sigma):
     return -log2pi*T.cast(samples.shape[1], 'float32') / 2 -  \
         T.sum(T.sqr((samples-mean)/T.exp(log_sigma)) + 2*log_sigma, axis=1) / 2
-k_ = 1
 
 vae_bound = reconst_cost + reg_cost
 log_lik_latent_prior = log_lik(latents, 0., 0.)
 log_lik_latent_posterior = log_lik(latents, mu, log_sigma)
-loglikelihood_normal = log_lik_latent_prior - reconst_cost - log_lik_latent_posterior
+loglikelihood_normal =  log_lik_latent_prior - reconst_cost - log_lik_latent_posterior
 
 loglikelihood = -log_mean_exp(loglikelihood_normal)
 lik_fn = theano.function(
@@ -1144,6 +1145,8 @@ lik_fn = theano.function(
 
 
 total_lik = []
+total_lik_bound = []
+
 _, _, test_data_new = lib.mnist_binarized.load(
     BATCH_SIZE,
     1
@@ -1153,10 +1156,11 @@ for (images,) in test_data_new():
     batch_ = np.tile(images, [k_, 1, 1, 1])
     res = lik_fn(batch_)
     # import ipdb; ipdb.set_trace()
+    total_lik_bound.append(res[1])
 
     total_lik.append(res[0])
     if i % 100 == 0:
-        print((i, np.mean(total_lik)))
+        print((i, np.mean(total_lik))), np.mean(total_lik_bound)
         # import ipdb; ipdb.set_trace()
 
     i += 1
@@ -1174,7 +1178,7 @@ print("Training")
 lib.train_loop.train_loop(
     inputs=[total_iters, images],
     inject_total_iters=True,
-    cost=cost,
+    cost=cost.mean(),
     prints=[
         ('alpha', alpha),
         ('reconst', reconst_cost),
