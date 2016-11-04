@@ -3,10 +3,11 @@ VAE + Pixel CNN
 Ishaan Gulrajani
 """
 
+
 """
 Modified by Kundan Kumar
 
-Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 10 -fs 3 -algo cond_z_bias -dpx 16 -ldim 16
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 12 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16
 """
 
 import os, sys
@@ -835,25 +836,25 @@ def binarize(images):
         np.random.uniform(size=images.shape) < images
     ).astype(theano.config.floatX)
 
-def generate_with_only_receptive_field(fn, samples, latents):
-    h, w =  HEIGHT, WIDTH
-    receptive_field = 3 + ((PIXEL_CNN_FILTER_SIZE/2)*PIXEL_CNN_LAYERS)
+# def generate_with_only_receptive_field(fn, samples, latents):
+#     h, w =  HEIGHT, WIDTH
+#     receptive_field = 3 + ((PIXEL_CNN_FILTER_SIZE/2)*PIXEL_CNN_LAYERS)
 
-    next_samples = samples
+#     next_samples = samples
 
-    t0 = time.time()
-    for j in xrange(HEIGHT):
-        for k in xrange(WIDTH):
-            for i in xrange(N_CHANNELS):
-                j_min, j_end, j_res, k_min, k_end, k_res = get_receptive_area(h, w, receptive_field, j,k)
-                res = fn(latents, next_samples[:,:,j_min:j_end, k_min:k_end])
-                next_samples[:, i, j, k] = binarize(res[:, i, j_res, k_res])
-                samples[:, i, j, k] = res[:, i, j_res, k_res]
+#     t0 = time.time()
+#     for j in xrange(HEIGHT):
+#         for k in xrange(WIDTH):
+#             for i in xrange(N_CHANNELS):
+#                 j_min, j_end, j_res, k_min, k_end, k_res = get_receptive_area(h, w, receptive_field, j,k)
+#                 res = fn(latents, next_samples[:,:,j_min:j_end, k_min:k_end])
+#                 next_samples[:, i, j, k] = binarize(res[:, i, j_res, k_res])
+#                 samples[:, i, j, k] = res[:, i, j_res, k_res]
 
-    t1 = time.time()
-    print("With only receptive field time taken is {:.4f}s".format(t1 - t0))
+#     t1 = time.time()
+#     print("With only receptive field time taken is {:.4f}s".format(t1 - t0))
 
-    return samples
+#     return samples
 
 
 
@@ -1060,6 +1061,7 @@ def generate_and_save_samples(tag):
         costs.append(eval_fn(images, ALPHA_ITERS+1))
     print "test cost: {}".format(np.mean(costs))
     # return
+    lib.save_params(os.path.join(OUT_DIR, tag + "_params.pkl"))
     def save_images(images, filename, i = None):
         """images.shape: (batch, n channels, height, width)"""
         if i is not None:
@@ -1082,32 +1084,32 @@ def generate_and_save_samples(tag):
 
     latents = latents.astype(theano.config.floatX)
 
-    # samples = np.zeros(
-    #     (100, N_CHANNELS, HEIGHT, WIDTH),
-    #     dtype=theano.config.floatX
-    # )
-
-    # next_sample = samples
-
-    # t0 = time.time()
-    # for j in xrange(HEIGHT):
-    #     for k in xrange(WIDTH):
-    #         for i in xrange(N_CHANNELS):
-    #             samples_p_value = sample_fn(latents, next_sample)
-    #             next_sample = binarize(samples_p_value)
-    #             samples[:, i, j, k] = next_sample[:, i, j, k]
-
-    # t1 = time.time()
-    # print("Time taken for generation normally {:.4f}".format(t1 - t0))
-
-    # save_images(samples_p_value, 'samples_pval_repeated_')
     samples = np.zeros(
         (100, N_CHANNELS, HEIGHT, WIDTH),
         dtype=theano.config.floatX
     )
 
-    samples = generate_with_only_receptive_field(sample_fn, samples, latents)
-    save_images(samples, 'samples_pval_')
+    next_sample = samples.copy()
+
+    t0 = time.time()
+    for j in xrange(HEIGHT):
+        for k in xrange(WIDTH):
+            for i in xrange(N_CHANNELS):
+                samples_p_value = sample_fn(latents, next_sample)
+                next_sample = binarize(samples_p_value)
+                samples[:, i, j, k] = samples_p_value[:, i, j, k]
+
+    t1 = time.time()
+    print("Time taken for generation normally {:.4f}".format(t1 - t0))
+
+    save_images(samples_p_value, 'samples_pval_repeated_')
+    # samples = np.zeros(
+    #     (100, N_CHANNELS, HEIGHT, WIDTH),
+    #     dtype=theano.config.floatX
+    # )
+
+    # samples = generate_with_only_receptive_field(sample_fn, samples, latents)
+    # save_images(samples, 'samples_pval_')
 
 generate_and_save_samples("initial_Samples")
 # exit()
