@@ -71,7 +71,7 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-OUT_DIR = '/Tmp/kumarkun/mnist_pixel_RMB' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
+OUT_DIR = '/Tmp/kumarkun/mnist_pixel_final' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
 
 if not os.path.isdir(OUT_DIR):
    os.makedirs(OUT_DIR)
@@ -102,7 +102,7 @@ N_CHANNELS = 1
 HEIGHT = 28
 WIDTH = 28
 
-TEST_BATCH_SIZE = 1
+TEST_BATCH_SIZE = 100
 TIMES = ('iters', 500, 500*400, 500, 400*500, 2*ALPHA_ITERS)
 
 lib.print_model_settings(locals().copy())
@@ -1051,31 +1051,18 @@ eval_fn = theano.function(
 
 train_data, dev_data, test_data = lib.mnist_binarized.load(
     BATCH_SIZE,
-    100
+    TEST_BATCH_SIZE
 )
-
-test_d = [i for (i,) in test_data()]
-
-print len(test_d)
-print test_d[0].shape
-
-def get_batch(d):
-    for b in d:
-        yield b
-
-def get_single(d):
-    for b in d:
-        for i in b:
-            yield [i]
 
 
 
 def generate_and_save_samples(tag):
 
     costs = []
-    for images in get_batch(test_d):
+    for (images,) in test_data():
         costs.append(eval_fn(images, ALPHA_ITERS+1))
     print "test cost: {}".format(np.mean(costs))
+    compute_importance_weighted_likelihood()
     # return
     lib.save_params(os.path.join(OUT_DIR, tag + "_params.pkl"))
     def save_images(images, filename, i = None):
@@ -1128,15 +1115,15 @@ def generate_and_save_samples(tag):
     # save_images(samples, 'samples_pval_')
 
 # generate_and_save_samples("initial_Samples")
-lib.load_params(os.path.join(OUT_DIR, 'iters100000_time14396.23296_params.pkl'))
-generate_and_save_samples("initial_Samples_after_loading_params")
+lib.load_params(os.path.join(OUT_DIR, 'iters45000_time6521.33750844_params.pkl'))
+generate_and_save_samples("initial_Samples")
 # exit()
 
 #############################################
-###############Importance Sampling###########
+##############Importance Sampling###########
 log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
 
-k_ = 50
+k_ = 10
 
 def log_mean_exp(x, axis=1):
     m = T.max(x,  keepdims=True)
@@ -1161,32 +1148,30 @@ lik_fn = theano.function(
 total_lik = []
 total_lik_bound = []
 
-_, _, test_data_new = lib.mnist_binarized.load(
-    BATCH_SIZE,
-    1
-)
 i = 0
-for images in get_single(test_d):
-    batch_ = np.tile(images, [k_, 1, 1, 1])
-    res = lik_fn(batch_)
-    # import ipdb; ipdb.set_trace()
-    total_lik_bound.append(res[1])
+def compute_importance_weighted_likelihood():
+    for (images,) in test_data():
+        for im in images:
+            batch_ = np.tile(im, [k_, 1, 1, 1])
+            res = lik_fn(batch_)
+            # import ipdb; ipdb.set_trace()
+            total_lik_bound.append(res[1])
 
-    total_lik.append(res[0])
-    if i % 100 == 0:
-        print((i, np.mean(total_lik))), np.mean(total_lik_bound)
-        # import ipdb; ipdb.set_trace()
+            total_lik.append(res[0])
+            # if i % 100 == 0:
+            #     print((i, np.mean(total_lik))), np.mean(total_lik_bound)
+                # import ipdb; ipdb.set_trace()
 
-    i += 1
+            i += 1
 
-
+    print "Importance weighted likelihood", np.mean(total_lik)
+    print "normal likelihood", np.mean(total_lik_bound)
 ##############################################
 ##############################################
 
-print "Final likelihood", np.mean(total_lik)
 
 
-exit()
+# exit()
 print("Training")
 
 lib.train_loop.train_loop(
@@ -1195,8 +1180,8 @@ lib.train_loop.train_loop(
     cost=cost.mean(),
     prints=[
         ('alpha', alpha),
-        ('reconst', reconst_cost),
-        ('reg', reg_cost)
+        ('reconst', reconst_cost.mean()),
+        ('reg', reg_cost.mean())
     ],
     optimizer=functools.partial(lasagne.updates.adam, learning_rate=LR),
     train_data=train_data,
