@@ -1055,6 +1055,55 @@ train_data, dev_data, test_data = lib.mnist_binarized.load(
 )
 
 
+#############################################
+##############Importance Sampling###########
+log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
+
+k_ = 10
+
+def log_mean_exp(x, axis=1):
+    m = T.max(x,  keepdims=True)
+    return m + T.log(T.sum(T.exp(x - m), keepdims=True)) - T.log(k_)
+
+def log_lik(samples, mean, log_sigma):
+    return -log2pi*T.cast(samples.shape[1], 'float32') / 2 -  \
+        T.sum(T.sqr((samples-mean)/T.exp(log_sigma)) + 2*log_sigma, axis=1) / 2
+
+vae_bound = reconst_cost + reg_cost
+log_lik_latent_prior = log_lik(latents, 0., 0.)
+log_lik_latent_posterior = log_lik(latents, mu, log_sigma)
+loglikelihood_normal =  log_lik_latent_prior - reconst_cost - log_lik_latent_posterior
+
+loglikelihood = -log_mean_exp(loglikelihood_normal)
+lik_fn = theano.function(
+    [images],
+    [loglikelihood, vae_bound, reconst_cost, reg_cost, log_lik_latent_prior, log_lik_latent_posterior, loglikelihood_normal]
+)
+
+
+total_lik = []
+total_lik_bound = []
+
+i = 0
+def compute_importance_weighted_likelihood():
+    for (images,) in test_data():
+        for im in images:
+            batch_ = np.tile(im, [k_, 1, 1, 1])
+            res = lik_fn(batch_)
+            # import ipdb; ipdb.set_trace()
+            total_lik_bound.append(res[1])
+
+            total_lik.append(res[0])
+            # if i % 100 == 0:
+            #     print((i, np.mean(total_lik))), np.mean(total_lik_bound)
+                # import ipdb; ipdb.set_trace()
+
+            i += 1
+
+    print "Importance weighted likelihood", np.mean(total_lik)
+    print "normal likelihood", np.mean(total_lik_bound)
+##############################################
+##############################################
 
 def generate_and_save_samples(tag):
 
@@ -1118,57 +1167,6 @@ def generate_and_save_samples(tag):
 lib.load_params(os.path.join(OUT_DIR, 'iters45000_time6521.33750844_params.pkl'))
 generate_and_save_samples("initial_Samples")
 # exit()
-
-#############################################
-##############Importance Sampling###########
-log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
-
-k_ = 10
-
-def log_mean_exp(x, axis=1):
-    m = T.max(x,  keepdims=True)
-    return m + T.log(T.sum(T.exp(x - m), keepdims=True)) - T.log(k_)
-
-def log_lik(samples, mean, log_sigma):
-    return -log2pi*T.cast(samples.shape[1], 'float32') / 2 -  \
-        T.sum(T.sqr((samples-mean)/T.exp(log_sigma)) + 2*log_sigma, axis=1) / 2
-
-vae_bound = reconst_cost + reg_cost
-log_lik_latent_prior = log_lik(latents, 0., 0.)
-log_lik_latent_posterior = log_lik(latents, mu, log_sigma)
-loglikelihood_normal =  log_lik_latent_prior - reconst_cost - log_lik_latent_posterior
-
-loglikelihood = -log_mean_exp(loglikelihood_normal)
-lik_fn = theano.function(
-    [images],
-    [loglikelihood, vae_bound, reconst_cost, reg_cost, log_lik_latent_prior, log_lik_latent_posterior, loglikelihood_normal]
-)
-
-
-total_lik = []
-total_lik_bound = []
-
-i = 0
-def compute_importance_weighted_likelihood():
-    for (images,) in test_data():
-        for im in images:
-            batch_ = np.tile(im, [k_, 1, 1, 1])
-            res = lik_fn(batch_)
-            # import ipdb; ipdb.set_trace()
-            total_lik_bound.append(res[1])
-
-            total_lik.append(res[0])
-            # if i % 100 == 0:
-            #     print((i, np.mean(total_lik))), np.mean(total_lik_bound)
-                # import ipdb; ipdb.set_trace()
-
-            i += 1
-
-    print "Importance weighted likelihood", np.mean(total_lik)
-    print "normal likelihood", np.mean(total_lik_bound)
-##############################################
-##############################################
-
 
 
 # exit()
