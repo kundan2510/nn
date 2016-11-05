@@ -1084,8 +1084,8 @@ lik_fn = theano.function(
 total_lik = []
 total_lik_bound = []
 
-i = 0
 def compute_importance_weighted_likelihood():
+    # i = 0
     for (images,) in test_data():
         for im in images:
             batch_ = np.tile(im, [k_, 1, 1, 1])
@@ -1098,7 +1098,7 @@ def compute_importance_weighted_likelihood():
             #     print((i, np.mean(total_lik))), np.mean(total_lik_bound)
                 # import ipdb; ipdb.set_trace()
 
-            i += 1
+            # i += 1
 
     print "Importance weighted likelihood", np.mean(total_lik)
     print "normal likelihood", np.mean(total_lik_bound)
