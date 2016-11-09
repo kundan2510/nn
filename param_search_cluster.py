@@ -27,7 +27,10 @@ num_layers = [12, 14, 16, 18, 20, 24]
 filter_sizes = [5,7]
 latent_dim = [4, 8, 12, 16, 20, 24]
 dim_pix = [4, 8, 12, 16, 20, 24]
-beta = numpy.arange(1, 5, 0.15)
+beta = numpy.arange(1, 5, 0.5)
+
+beta = [1./b for b in beta]
+
 
 vary_arr_dict = {'alpha_iters': alpha_iters, 'num_layers':num_layers, 'filter_sizes':filter_sizes, 'latent_dim':latent_dim, 'dim_pix':dim_pix, 'beta' : beta}
 
