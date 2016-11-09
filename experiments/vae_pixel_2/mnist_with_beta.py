@@ -1224,11 +1224,11 @@ print("Training")
 
 def new_train_data():
     for (images, targets) in train_data():
-        yield images
+        yield (images,)
 
 def new_dev_data():
     for (images, targets) in dev_data():
-        yield images
+        yield (images,)
 
 
 lib.train_loop.train_loop(
