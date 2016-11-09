@@ -44,6 +44,7 @@ def save_params(path):
     param_vals = {}
     for name, param in _params.iteritems():
         param_vals[name] = param.get_value()
+        # print name
 
     with open(path, 'wb') as f:
         pickle.dump(param_vals, f)
@@ -54,6 +55,7 @@ def load_params(path):
 
     for name, val in param_vals.iteritems():
         _params[name].set_value(val)
+        # print name
 
 def search(node, critereon):
     """

@@ -35,4 +35,4 @@ def load(batch_size, test_batch_size):
 
     return _make_stream(tr_stream, batch_size), \
            _make_stream(val_stream, batch_size), \
-           _make_stream(te_stream, batch_size)
+           _make_stream(te_stream, test_batch_size)
