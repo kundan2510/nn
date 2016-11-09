@@ -26,12 +26,13 @@ def mnist_generator(data, batch_size):
     return get_epoch
 
 def load(batch_size, test_batch_size):
-    filepaths = ['/tmp/mnist.pkl.gz', '~/mnist.pkl.gz']
+    filepaths = ['/tmp/mnist.pkl.gz', '/u/kumarkun/mnist.pkl.gz', '/home/kundan/mnist.pkl.gz']
 
     filepath = None
     for fp in filepaths:
         if os.path.isfile(fp):
             filepath = fp
+            print "Loading from {}".format(fp)
             break
 
     url = 'http://www.iro.umontreal.ca/~lisa/deep/data/mnist/mnist.pkl.gz'
@@ -40,7 +41,7 @@ def load(batch_size, test_batch_size):
         print "Couldn't find MNIST dataset in /tmp, downloading..."
         urllib.urlretrieve(url, filepath)
 
-    with gzip.open('/tmp/mnist.pkl.gz', 'rb') as f:
+    with gzip.open(filepath, 'rb') as f:
         train_data, dev_data, test_data = pickle.load(f)
 
     return (
