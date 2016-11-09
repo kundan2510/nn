@@ -1,13 +1,9 @@
 """
-VAE + Pixel CNN
-Ishaan Gulrajani
-"""
-
-
-"""
 Modified by Kundan Kumar
 
 Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist_with_beta.py -L 2 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16 -beta 1.
+
+This code operates on dynamic binarization.
 """
 
 import os, sys
@@ -25,7 +21,7 @@ except ImportError:
 
 import lib
 import lib.train_loop
-import lib.mnist_binarized
+import lib.mnist_stochastic_binarized
 import lib.ops.mlp
 import lib.ops.conv_encoder
 import lib.ops.conv_decoder
@@ -1109,7 +1105,7 @@ eval_fn = theano.function(
     cost.mean()
 )
 
-train_data, dev_data, test_data = lib.mnist_binarized.load(
+train_data, dev_data, test_data = lib.mnist_stochastic_binarized.load(
     BATCH_SIZE,
     TEST_BATCH_SIZE
 )
@@ -1146,7 +1142,7 @@ def compute_importance_weighted_likelihood():
     i = 0
     total_lik = []
     total_lik_bound = []
-    for (images,) in test_data():
+    for (images, targets) in test_data():
         for im in images:
             batch_ = np.tile(im, [k_, 1, 1, 1])
             res = lik_fn(batch_)
@@ -1168,7 +1164,7 @@ def compute_importance_weighted_likelihood():
 def generate_and_save_samples(tag):
 
     costs = []
-    for (images,) in test_data():
+    for (images, targets) in test_data():
         costs.append(eval_fn(images, ALPHA_ITERS+1))
     print "test cost: {}".format(np.mean(costs))
     compute_importance_weighted_likelihood()
@@ -1225,6 +1221,16 @@ def generate_and_save_samples(tag):
 
 print("Training")
 
+
+def new_train_data():
+    for (images, targets) in train_data():
+        yield images
+
+def new_dev_data():
+    for (images, targets) in dev_data():
+        yield images
+
+
 lib.train_loop.train_loop(
     inputs=[total_iters, images],
     inject_total_iters=True,
@@ -1235,8 +1241,8 @@ lib.train_loop.train_loop(
         ('reg', reg_cost.mean())
     ],
     optimizer=functools.partial(lasagne.updates.adam, learning_rate=LR),
-    train_data=train_data,
-    test_data=dev_data,
+    train_data= new_train_data,
+    test_data=new_dev_data,
     callback=generate_and_save_samples,
     times=TIMES
 )
