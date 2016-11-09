@@ -26,10 +26,17 @@ def mnist_generator(data, batch_size):
     return get_epoch
 
 def load(batch_size, test_batch_size):
-    filepath = '/tmp/mnist.pkl.gz'
+    filepaths = ['/tmp/mnist.pkl.gz', '~/mnist.pkl.gz']
+
+    filepath = None
+    for fp in filepaths:
+        if os.path.isfile(fp):
+            filepath = fp
+            break
+
     url = 'http://www.iro.umontreal.ca/~lisa/deep/data/mnist/mnist.pkl.gz'
 
-    if not os.path.isfile(filepath):
+    if filepath is None:
         print "Couldn't find MNIST dataset in /tmp, downloading..."
         urllib.urlretrieve(url, filepath)
 
