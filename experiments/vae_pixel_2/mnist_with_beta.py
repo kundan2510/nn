@@ -7,7 +7,7 @@ Ishaan Gulrajani
 """
 Modified by Kundan Kumar
 
-Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 21 -fs 5 -algo upsample_z_conv -dpx 64 -ldim 64
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 21 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16
 """
 
 import os, sys
@@ -54,6 +54,7 @@ parser.add_argument('-dpx', '--dim_pix', required = False, default=32, type = in
 parser.add_argument('-fs', '--filter_size', required = False, default=5, type = int )
 parser.add_argument('-ldim', '--latent_dim', required = False, default=64, type = int )
 parser.add_argument('-ait', '--alpha_iters', required = False, default=10000, type = int )
+parser.add_argument('-beta', '--beta', required = False, default=1., type = floatX )
 
 
 args = parser.parse_args()
@@ -96,6 +97,7 @@ LATENT_DIM = args.latent_dim
 ALPHA_ITERS = args.alpha_iters
 VANILLA = False
 LR = 1e-3
+BETA = args.beta
 
 BATCH_SIZE = 100
 N_CHANNELS = 1
@@ -1081,7 +1083,7 @@ alpha = T.minimum(
 if VANILLA:
     cost = reconst_cost
 else:
-    cost = reconst_cost + (alpha * reg_cost)
+    cost = reconst_cost + BETA*(alpha * reg_cost)
 
 sample_fn_latents = T.matrix('sample_fn_latents')
 sample_fn = theano.function(
@@ -1209,11 +1211,6 @@ def generate_and_save_samples(tag):
     # samples = generate_with_only_receptive_field(sample_fn, samples, latents)
     # save_images(samples, 'samples_pval_')
 
-lib.load_params(os.path.join(OUT_DIR, 'iters15500_time30678.3401728_params.pkl'))
-generate_and_save_samples("initial_Samples")
-
-
-exit()
 print("Training")
 
 lib.train_loop.train_loop(

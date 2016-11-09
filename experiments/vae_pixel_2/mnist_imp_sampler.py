@@ -7,7 +7,7 @@ Ishaan Gulrajani
 """
 Modified by Kundan Kumar
 
-Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 21 -fs 5 -algo upsample_z_conv -dpx 64 -ldim 64
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 12 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16
 """
 
 import os, sys
@@ -48,7 +48,7 @@ import functools
 
 parser = argparse.ArgumentParser(description='Generating images pixel by pixel')
 parser.add_argument('-L','--num_pixel_cnn_layer', required=True, type=int, help='Number of layers to use in pixelCNN')
-parser.add_argument('-algo', '--decoder_algorithm', required = True, help="One of 'cond_z_bias', 'upsample_z_no_conv', 'upsample_z_conv', 'upsample_z_conv_tied' 'vae_only'" )
+parser.add_argument('-algo', '--decoder_algorithm', required = True, help="One of 'cond_z_bias', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only'" )
 parser.add_argument('-enc', '--encoder', required = False, default='simple', help="Encoder: 'complecated' or 'simple' " )
 parser.add_argument('-dpx', '--dim_pix', required = False, default=32, type = int )
 parser.add_argument('-fs', '--filter_size', required = False, default=5, type = int )
@@ -59,7 +59,7 @@ parser.add_argument('-ait', '--alpha_iters', required = False, default=10000, ty
 args = parser.parse_args()
 
 
-assert args.decoder_algorithm in ['condRMB','cond_z_bias', 'cond_z_bias_skip', 'upsample_z_no_conv', 'upsample_z_conv', 'upsample_z_conv_tied', 'vae_only', 'traditional', 'traditional_exact' ]
+assert args.decoder_algorithm in ['condRMB','cond_z_bias', 'cond_z_bias_skip', 'upsample_z_no_conv', 'upsample_z_conv', 'vae_only', 'traditional', 'traditional_exact' ]
 
 print args
 
@@ -703,50 +703,6 @@ def Decoder_no_blind(latents, images):
 
     return output
 
-def Decoder_no_blind_tied_pixelCNN_weights(latents, images):
-    output = latents
-
-    output = lib.ops.linear.Linear('Dec.Inp', input_dim=LATENT_DIM, output_dim=4*4*DIM_4, inputs=output)
-    output = T.nnet.relu(output.reshape((output.shape[0], DIM_4, 4, 4)))
-
-    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.1', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
-    output = T.nnet.relu(lib.ops.conv2d.Conv2D('Dec.2', input_dim=DIM_4, output_dim=DIM_4, filter_size=3, inputs=output))
-
-    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.3', input_dim=DIM_4, output_dim=DIM_3, filter_size=3, inputs=output))
-    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.4', input_dim=DIM_3, output_dim=DIM_3, filter_size=3, inputs=output))
-
-    # Cut from 8x8 to 7x7
-    output = output[:,:,:7,:7]
-
-    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.5', input_dim=DIM_3, output_dim=DIM_2, filter_size=3, inputs=output))
-    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.6', input_dim=DIM_2, output_dim=DIM_2, filter_size=3, inputs=output))
-
-    output = T.nnet.relu(lib.ops.deconv2d.Deconv2D('Dec.7', input_dim=DIM_2, output_dim=DIM_1, filter_size=3, inputs=output))
-    output = T.nnet.relu(lib.ops.conv2d.Conv2D(    'Dec.8', input_dim=DIM_1, output_dim=DIM_1, filter_size=3, inputs=output))
-
-    skip_outputs = []
-
-    images_with_latent = T.concatenate([images, output], axis=1)
-
-    X_v, X_h = next_stacks(images_with_latent, images_with_latent, N_CHANNELS + DIM_1, "Dec.PixInput", filter_size = 7, hstack = "hstack_a", residual = False)
-
-    for i in xrange(PIXEL_CNN_LAYERS):
-        X_v, X_h = next_stacks(X_v, X_h,  DIM_PIX, "Dec.Pix_tied", filter_size = 3)
-
-
-    output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_1, filter_size=1, inputs=X_h))
-    # output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=X_h))
-    # skip_outputs.append(output)
-
-    output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_1, output_dim=2*DIM_1, filter_size=1, inputs=output))
-    # output = lib.ops.relu.relu(lib.ops.conv2d.Conv2D('Dec.PixOut2', input_dim=DIM_PIX, output_dim=DIM_PIX, filter_size=1, inputs=output))
-    # skip_outputs.append(output)
-
-    output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_1, output_dim=N_CHANNELS, filter_size=1, inputs=output, he_init=False)
-    # output = lib.ops.conv2d.Conv2D('Dec.PixOut3', input_dim=DIM_PIX*len(skip_outputs), output_dim=N_CHANNELS, filter_size=1, inputs=T.concatenate(skip_outputs, axis=1), he_init=False)
-
-    return output
-
 def Decoder_no_blind_vary_up_sampling(latents, images):
     output = latents
 
@@ -1036,8 +992,6 @@ elif args.decoder_algorithm == 'traditional_exact':
     decode_algo = Decoder_traditional_exact
 elif args.decoder_algorithm == 'condRMB':
     decode_algo = Decoder_condRMB
-elif args.decoder_algorithm == 'upsample_z_conv_tied':
-    decode_algo = Decoder_no_blind_tied_pixelCNN_weights
 else:
     assert False, "you should never be here!!"
 
@@ -1105,7 +1059,7 @@ train_data, dev_data, test_data = lib.mnist_binarized.load(
 ##############Importance Sampling###########
 log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
 
-k_ = 100
+k_ = 1000
 
 def log_mean_exp(x, axis=1):
     m = T.max(x,  keepdims=True)
@@ -1140,11 +1094,11 @@ def compute_importance_weighted_likelihood():
             total_lik_bound.append(res[1].mean())
 
             total_lik.append(res[0])
-            # if i % 100 == 0:
-            #     print((i, np.mean(total_lik))), np.mean(total_lik_bound)
-            #     # import ipdb; ipdb.set_trace()
-            print i
-            i += 1
+            if i % 100 == 0:
+                print((i, np.mean(total_lik))), np.mean(total_lik_bound)
+                # import ipdb; ipdb.set_trace()
+            # print i
+            # i += 1
 
     print "Importance weighted likelihood", np.mean(total_lik)
     print "normal likelihood", np.mean(total_lik_bound)
@@ -1209,11 +1163,13 @@ def generate_and_save_samples(tag):
     # samples = generate_with_only_receptive_field(sample_fn, samples, latents)
     # save_images(samples, 'samples_pval_')
 
-lib.load_params(os.path.join(OUT_DIR, 'iters15500_time30678.3401728_params.pkl'))
+# generate_and_save_samples("initial_Samples")
+lib.load_params(os.path.join(OUT_DIR, 'iters70500_time10614.8930545_params.pkl'))
 generate_and_save_samples("initial_Samples")
-
-
 exit()
+
+
+# exit()
 print("Training")
 
 lib.train_loop.train_loop(
