@@ -7,7 +7,7 @@ Ishaan Gulrajani
 """
 Modified by Kundan Kumar
 
-Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 21 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist_with_beta.py -L 2 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16 -beta 1.
 """
 
 import os, sys
@@ -54,7 +54,7 @@ parser.add_argument('-dpx', '--dim_pix', required = False, default=32, type = in
 parser.add_argument('-fs', '--filter_size', required = False, default=5, type = int )
 parser.add_argument('-ldim', '--latent_dim', required = False, default=64, type = int )
 parser.add_argument('-ait', '--alpha_iters', required = False, default=10000, type = int )
-parser.add_argument('-beta', '--beta', required = False, default=1., type = floatX )
+parser.add_argument('-beta', '--beta', required = False, default=1., type = lib.floatX )
 
 
 args = parser.parse_args()
@@ -72,7 +72,19 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-OUT_DIR = '/Tmp/kumarkun/mnist_pixel_final' + "/num_layers_new2_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
+if os.path.isdir('/home/kundan'):
+    """
+    It is a cluster
+    """
+    out_dir_prefix = '/home/kundan/mnist_saves_beta'
+else:
+    """
+    It is a lab machine.
+    """
+    out_dir_prefix = '/Tmp/kumarkun/mnist_saves_beta'
+
+
+OUT_DIR = out_dir_prefix + "/num_layers_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder
 
 if not os.path.isdir(OUT_DIR):
    os.makedirs(OUT_DIR)
@@ -1107,7 +1119,7 @@ train_data, dev_data, test_data = lib.mnist_binarized.load(
 ##############Importance Sampling###########
 log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
 
-k_ = 100
+k_ = 10
 
 def log_mean_exp(x, axis=1):
     m = T.max(x,  keepdims=True)
@@ -1145,7 +1157,7 @@ def compute_importance_weighted_likelihood():
             # if i % 100 == 0:
             #     print((i, np.mean(total_lik))), np.mean(total_lik_bound)
             #     # import ipdb; ipdb.set_trace()
-            print i
+            # print i
             i += 1
 
     print "Importance weighted likelihood", np.mean(total_lik)
