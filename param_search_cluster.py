@@ -12,9 +12,15 @@ args = parser.parse_args()
 
 theano_flag = "THEANO_FLAGS=mode=FAST_RUN,device=gpu,floatX=float32,lib.cnmem=0.95"
 cluster_command = "jobdispatch --gpu --duree=20:00:00 --env={} --project=jvb-000-ag".format(theano_flag)
-cmd = "python -u experiments/vae_pixel_2/mnist.py"
+cmd = "python -u experiments/vae_pixel_2/{}"
 
 assert(args.vary in ['alpha_iters', 'beta', 'num_layers', 'filter_sizes', 'latent_dim', 'dim_pix', 'nothing' ])
+
+if args.vary == "beta":
+    cmd = cmd.format("mnist_with_beta.py")
+else:
+    cmd = cmd.format("mnist.py")
+
 
 alpha_iters = [5000, 6000, 7000]
 num_layers = [12, 14, 16, 18, 20, 24]
