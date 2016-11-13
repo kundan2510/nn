@@ -31,6 +31,8 @@ import lib.ops.deconv2d
 import lib.ops.diagonal_bilstm
 import lib.ops.relu
 
+import lib.latent_train_utils
+
 import numpy as np
 import theano
 import theano.tensor as T
@@ -1105,10 +1107,18 @@ eval_fn = theano.function(
     cost.mean()
 )
 
+encode_fn = theano.function([images], mu)
+
 train_data, dev_data, test_data = lib.mnist_stochastic_binarized.load(
     BATCH_SIZE,
     TEST_BATCH_SIZE
 )
+
+######################## Debugging SVM ################
+
+val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data)
+
+######################## Debugging SVM ################
 
 
 #############################################
