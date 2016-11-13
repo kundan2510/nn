@@ -83,7 +83,8 @@ else:
 
 OUT_DIR = out_dir_prefix + "/num_layers_" + str(args.num_pixel_cnn_layer) + \
                 args.decoder_algorithm + "_"+args.encoder + "/dim_pix_" + \
-                str(args.dim_pix) + "_latent_dim_" + str(args.latent_dim)
+                str(args.dim_pix) + "_latent_dim_" + str(args.latent_dim) + "/beta_" + str(args.beta) + \
+                "_fs_" + str(args.filter_size) + "_alpha_iters_" + str(args.alpha_iters)
 
 if not os.path.isdir(OUT_DIR):
    os.makedirs(OUT_DIR)
