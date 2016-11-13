@@ -1118,7 +1118,7 @@ train_data, dev_data, test_data = lib.mnist_stochastic_binarized.load(
 
 ######################## Debugging SVM ################
 
-val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data)
+# val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data)
 
 ######################## Debugging SVM ################
 
