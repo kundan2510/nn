@@ -53,6 +53,7 @@ parser.add_argument('-fs', '--filter_size', required = False, default=5, type = 
 parser.add_argument('-ldim', '--latent_dim', required = False, default=64, type = int )
 parser.add_argument('-ait', '--alpha_iters', required = False, default=10000, type = int )
 parser.add_argument('-beta', '--beta', required = False, default=1., type = lib.floatX )
+parser.add_argument('-file_to_load', '--file_to_load', required = True, type = str )
 
 args = parser.parse_args()
 
@@ -73,17 +74,15 @@ if os.path.isdir('/home/kundan'):
     """
     It is a cluster
     """
-    out_dir_prefix = '/home/kundan/mnist_saves_beta_new'
+    out_dir_prefix = '/home/kundan/mnist_saves_beta'
 else:
     """
     It is a lab machine.
     """
-    out_dir_prefix = '/Tmp/kumarkun/mnist_saves_beta_new'
+    out_dir_prefix = '/Tmp/kumarkun/mnist_saves_beta'
 
 
-OUT_DIR = out_dir_prefix + "/num_layers_" + str(args.num_pixel_cnn_layer) + \
-                args.decoder_algorithm + "_"+args.encoder + "/dim_pix_" + \
-                str(args.dim_pix) + "_latent_dim_" + str(args.latent_dim)
+OUT_DIR = out_dir_prefix + "/num_layers_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder + "/dim_pix_" + str(args.dim_pix) + "_latent_dim_" + args.latent_dim 
 
 if not os.path.isdir(OUT_DIR):
    os.makedirs(OUT_DIR)
@@ -1103,10 +1102,6 @@ sample_fn = theano.function(
     on_unused_input='warn'
 )
 
-eval_fn = theano.function(
-    [images, total_iters],
-    cost.mean()
-)
 
 encode_fn = theano.function([images], mu)
 
@@ -1115,147 +1110,10 @@ train_data, dev_data, test_data = lib.mnist_stochastic_binarized.load(
     TEST_BATCH_SIZE
 )
 
-######################## Debugging SVM ################
+lib.load_params(args.file_to_load)
 
 val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data)
 
 ######################## Debugging SVM ################
 
 
-#############################################
-##############Importance Sampling###########
-log2pi = T.constant(np.log(2*np.pi).astype(theano.config.floatX))
-
-k_ = 10
-
-def log_mean_exp(x, axis=1):
-    m = T.max(x,  keepdims=True)
-    return m + T.log(T.sum(T.exp(x - m), keepdims=True)) - T.log(k_)
-
-def log_lik(samples, mean, log_sigma):
-    return -log2pi*T.cast(samples.shape[1], 'float32') / 2 -  \
-        T.sum(T.sqr((samples-mean)/T.exp(log_sigma)) + 2*log_sigma, axis=1) / 2
-
-vae_bound = reconst_cost + reg_cost
-log_lik_latent_prior = log_lik(latents, 0., 0.)
-log_lik_latent_posterior = log_lik(latents, mu, log_sigma)
-loglikelihood_normal =  log_lik_latent_prior - reconst_cost - log_lik_latent_posterior
-
-loglikelihood = -log_mean_exp(loglikelihood_normal)
-lik_fn = theano.function(
-    [images],
-    [loglikelihood, vae_bound, reconst_cost, reg_cost, log_lik_latent_prior, log_lik_latent_posterior, loglikelihood_normal]
-)
-
-
-
-def compute_importance_weighted_likelihood():
-    i = 0
-    total_lik = []
-    total_lik_bound = []
-    for (images, targets) in test_data():
-        for im in images:
-            batch_ = np.tile(im, [k_, 1, 1, 1])
-            res = lik_fn(batch_)
-            # import ipdb; ipdb.set_trace()
-            total_lik_bound.append(res[1].mean())
-
-            total_lik.append(res[0])
-            # if i % 100 == 0:
-            #     print((i, np.mean(total_lik))), np.mean(total_lik_bound)
-            #     # import ipdb; ipdb.set_trace()
-            # print i
-            i += 1
-
-    print "Importance weighted likelihood", np.mean(total_lik)
-    print "normal likelihood", np.mean(total_lik_bound)
-##############################################
-##############################################
-
-def generate_and_save_samples(tag):
-    # val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data, dimension = LATENT_DIM)
-    lib.save_params(os.path.join(OUT_DIR, tag + "_params.pkl"))
-    return
-
-    costs = []
-    for (images, targets) in test_data():
-        costs.append(eval_fn(images, ALPHA_ITERS+1))
-    print "test cost: {}".format(np.mean(costs))
-    compute_importance_weighted_likelihood()
-    # return
-    def save_images(images, filename, i = None):
-        """images.shape: (batch, n channels, height, width)"""
-        if i is not None:
-            new_tag = "{}_{}".format(tag, i)
-        else:
-            new_tag = tag
-
-        images = images.reshape((10,10,28,28))
-
-        # pickle.save("{}/{}_{}.pkl".format(OUT_DIR, filename, tag))
-        # rowx, rowy, height, width -> rowy, height, rowx, width
-        images = images.transpose(1,2,0,3)
-        images = images.reshape((10*28, 10*28))
-
-        image = scipy.misc.toimage(images, cmin=0.0, cmax=1.0)
-        image.save('{}/{}_{}.jpg'.format(OUT_DIR, filename, new_tag))
-
-    latents = np.random.normal(size=(10, LATENT_DIM))
-    latents = np.repeat(latents, 10, axis=0)
-
-    latents = latents.astype(theano.config.floatX)
-
-    samples = np.zeros(
-        (100, N_CHANNELS, HEIGHT, WIDTH),
-        dtype=theano.config.floatX
-    )
-
-    next_sample = samples.copy()
-
-    t0 = time.time()
-    for j in xrange(HEIGHT):
-        for k in xrange(WIDTH):
-            for i in xrange(N_CHANNELS):
-                samples_p_value = sample_fn(latents, next_sample)
-                next_sample = binarize(samples_p_value)
-                samples[:, i, j, k] = samples_p_value[:, i, j, k]
-
-    t1 = time.time()
-    print("Time taken for generation normally {:.4f}".format(t1 - t0))
-
-    save_images(samples_p_value, 'samples_pval_repeated_')
-    # samples = np.zeros(
-    #     (100, N_CHANNELS, HEIGHT, WIDTH),
-    #     dtype=theano.config.floatX
-    # )
-
-    # samples = generate_with_only_receptive_field(sample_fn, samples, latents)
-    # save_images(samples, 'samples_pval_')
-
-print("Training")
-
-
-def new_train_data():
-    for (images, targets) in train_data():
-        yield (images,)
-
-def new_dev_data():
-    for (images, targets) in dev_data():
-        yield (images,)
-
-
-lib.train_loop.train_loop(
-    inputs=[total_iters, images],
-    inject_total_iters=True,
-    cost=cost.mean(),
-    prints=[
-        ('alpha', alpha),
-        ('reconst', reconst_cost.mean()),
-        ('reg', reg_cost.mean())
-    ],
-    optimizer=functools.partial(lasagne.updates.adam, learning_rate=LR),
-    train_data= new_train_data,
-    test_data=new_dev_data,
-    callback=generate_and_save_samples,
-    times=TIMES
-)
