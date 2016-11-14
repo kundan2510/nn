@@ -1,5 +1,6 @@
 import re
 import numpy
+import os
 
 def find_best_valid_iter_from_log(log_file_path):
 	with open(log_file_path, 'rb') as f:
