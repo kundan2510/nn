@@ -1,4 +1,5 @@
 import re
+import numpy
 
 def find_best_valid_iter_from_log(log_file_path):
 	with open(log_file_path, 'rb') as f:
@@ -15,7 +16,7 @@ def find_best_valid_iter_from_log(log_file_path):
 			if take_seriously is False :
 				if "Namespace" in curr_line:
 					info = curr_line.split()
-					beta = float(re.split("=|,", info[1])[1])
+					beta = numpy.float32(re.split("=|,", info[1])[1])
 					decoder_algorithm = re.split("=|,|'", info[2])[2]
 					dim_pix = int(re.split("=|,", info[3])[1])
 
@@ -56,4 +57,53 @@ def find_best_valid_iter_from_log(log_file_path):
 	return params, best_valid_iter
 
 
+def get_checkpoint_path(log_file_path):
+	params, iters = find_best_valid_iter_from_log(log_file_path)
+
+	if os.path.isdir('/home/kundan'):
+		"""
+		It is a cluster
+		"""
+		out_dir_prefix = '/home/kundan/mnist_saves_beta_new'
+	else:
+		"""
+		It is a lab machine.
+		"""
+		out_dir_prefix = '/Tmp/kumarkun/mnist_saves_beta_new'
+
+
+	DIR = out_dir_prefix + "/num_layers_" + str(params['num_layers']) + \
+			params['decoder_algorithm']+ "_simple/dim_pix_" + \
+			str(params['dim_pix']) + "_latent_dim_" + str(params[latent_dim]) + "/beta_" + str(params[beta]) + \
+			"_fs_" + str(params['filter_size']) + "_alpha_iters_6000"
+
+	if not os.path.exists(DIR):
+		raise ValueError("Why does path {} not exist?".format(DIR))
+	else:
+		potential_checkpoints = []
+		for f in os.listdir(DIR):
+			if "iters{}".format(iters) in f:
+				potential_checkpoints.append(f)
+
+		if len(potential_checkpoints) != 1:
+			raise ValueError("More that one potential checkpoints!!")
+		else:
+			checkpoint = os.path.join(DIR, potential_checkpoints[0])
+			params['checkpoint'] = checkpoint
+
+		return "-L {num_layers} -fs {filter_size} -algo {algo} -dpx {dim_pix} -ldim latent_dim -beta {beta} -file_to_load {file_to_load}".format(**params)
+
+
+def get_all_evaluate_commands(log_folder):
+	commands = []
+
+	for f in os.listdir(log_folder):
+		curr_log = os.path.join(log_folder, f)
+		curr_params_str = get_checkpoint_path(curr_log)
+		curr_cmd = "python experiments/vae_pixel_2/mnist_with_beta_evaluate_latent.py {}".format(curr_params_str)
+		commands.append(curr_cmd)
+
+	with open("evaluation_command.cmd", 'rb') as f:
+		f.write("\n".join(commands))
+	
 
