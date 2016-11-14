@@ -97,13 +97,19 @@ def get_checkpoint_path(log_file_path):
 def get_all_evaluate_commands(log_folder):
 	commands = []
 
-	for f in os.listdir(log_folder):
-		curr_log = os.path.join(log_folder, f)
-		curr_params_str = get_checkpoint_path(curr_log)
-		curr_cmd = "python experiments/vae_pixel_2/mnist_with_beta_evaluate_latent.py {}".format(curr_params_str)
-		commands.append(curr_cmd)
+	for d in os.listdir(log_folder):
+		if "python" in d:
+			for f in os.listdir(os.path.join(log_folder, d)):
+				if "out" in f:
+				curr_log = os.path.join(log_folder, d, f)
+				print curr_log
+				curr_params_str = get_checkpoint_path(curr_log)
+				curr_cmd = "python experiments/vae_pixel_2/mnist_with_beta_evaluate_latent.py {}".format(curr_params_str)
+				commands.append(curr_cmd)
 
 	with open("evaluation_command.cmd", 'rb') as f:
 		f.write("\n".join(commands))
-	
+
+if __name__ == "__main__":
+	get_all_evaluate_commands('LOGS')
 
