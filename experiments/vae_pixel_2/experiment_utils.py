@@ -1,5 +1,6 @@
 import re
 import numpy
+import os
 
 def find_best_valid_iter_from_log(log_file_path):
 	with open(log_file_path, 'rb') as f:
@@ -74,7 +75,7 @@ def get_checkpoint_path(log_file_path):
 
 	DIR = out_dir_prefix + "/num_layers_" + str(params['num_layers']) + \
 			params['decoder_algorithm']+ "_simple/dim_pix_" + \
-			str(params['dim_pix']) + "_latent_dim_" + str(params[latent_dim]) + "/beta_" + str(params[beta]) + \
+			str(params['dim_pix']) + "_latent_dim_" + str(params['latent_dim']) + "/beta_" + str(params[beta]) + \
 			"_fs_" + str(params['filter_size']) + "_alpha_iters_6000"
 
 	if not os.path.exists(DIR):
@@ -91,7 +92,7 @@ def get_checkpoint_path(log_file_path):
 			checkpoint = os.path.join(DIR, potential_checkpoints[0])
 			params['checkpoint'] = checkpoint
 
-		return "-L {num_layers} -fs {filter_size} -algo {algo} -dpx {dim_pix} -ldim latent_dim -beta {beta} -file_to_load {file_to_load}".format(**params)
+		return "-L {num_layers} -fs {filter_size} -algo {algo} -dpx {dim_pix} -ldim {latent_dim} -beta {beta} -file_to_load {file_to_load}".format(**params)
 
 
 def get_all_evaluate_commands(log_folder):
