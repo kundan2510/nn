@@ -1,7 +1,7 @@
 """
 Modified by Kundan Kumar
 
-Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist_with_beta.py -L 2 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16 -beta 1.
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist_with_beta_evaluate_latent.py -L 2 -fs 5 -algo cond_z_bias -dpx 16 -ldim 16 -beta 1.
 
 This code operates on dynamic binarization.
 """
@@ -70,24 +70,6 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-if os.path.isdir('/home/kundan'):
-    """
-    It is a cluster
-    """
-    out_dir_prefix = '/home/kundan/mnist_saves_beta'
-else:
-    """
-    It is a lab machine.
-    """
-    out_dir_prefix = '/Tmp/kumarkun/mnist_saves_beta'
-
-
-OUT_DIR = out_dir_prefix + "/num_layers_" + str(args.num_pixel_cnn_layer) + args.decoder_algorithm + "_"+args.encoder + "/dim_pix_" + str(args.dim_pix) + "_latent_dim_" + args.latent_dim 
-
-if not os.path.isdir(OUT_DIR):
-   os.makedirs(OUT_DIR)
-   print "Created directory {}".format(OUT_DIR)
-
 def floatX(num):
     if theano.config.floatX == 'float32':
         return np.float32(num)
@@ -117,7 +99,7 @@ WIDTH = 28
 TEST_BATCH_SIZE = 100
 TIMES = ('iters', 500, 500*400, 500, 400*500, 2*ALPHA_ITERS)
 
-lib.print_model_settings(locals().copy())
+# lib.print_model_settings(locals().copy())
 
 theano_srng = RandomStreams(seed=234)
 
@@ -1102,6 +1084,7 @@ sample_fn = theano.function(
     on_unused_input='warn'
 )
 
+get_reg_cost = theano.function([images], reg_cost.mean())
 
 encode_fn = theano.function([images], mu)
 
@@ -1113,6 +1096,13 @@ train_data, dev_data, test_data = lib.mnist_stochastic_binarized.load(
 lib.load_params(args.file_to_load)
 
 val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data)
+print "Val accuracy is {}".format(val_accuracy)
+
+reg_costs = []
+for (images, targets) in dev_data():
+    reg_costs.append(get_reg_cost(images))
+
+print "KL cost is {}".format(np.mean(reg_costs))
 
 ######################## Debugging SVM ################
 
