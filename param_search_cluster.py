@@ -29,12 +29,13 @@ latent_dim = [4, 8, 12, 16, 20, 24]
 dim_pix = [4, 8, 12, 16, 20, 24]
 beta = numpy.arange(1, 5, 0.5)
 
-beta = [1./b for b in beta]
+#beta = [b for b in beta] + [1./b for b in beta]
 
+beta = [1./b for b in beta]
 
 vary_arr_dict = {'alpha_iters': alpha_iters, 'num_layers':num_layers, 'filter_sizes':filter_sizes, 'latent_dim':latent_dim, 'dim_pix':dim_pix, 'beta' : beta}
 
-params = {'alpha_iters': 6000, 'num_layers':12, 'filter_sizes':5, 'latent_dim':16, 'dim_pix':16, 'algo': 'cond_z_bias', 'beta' : 1}
+params = {'alpha_iters': 6000, 'num_layers':12, 'filter_sizes':5, 'latent_dim':64, 'dim_pix':32, 'algo': 'cond_z_bias', 'beta' : 1}
 
 if args.vary == "nothing":
     for i in range(5):

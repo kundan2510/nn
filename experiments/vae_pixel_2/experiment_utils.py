@@ -75,7 +75,7 @@ def get_checkpoint_path(log_file_path):
 
 	DIR = out_dir_prefix + "/num_layers_" + str(params['num_layers']) + \
 			params['decoder_algorithm']+ "_simple/dim_pix_" + \
-			str(params['dim_pix']) + "_latent_dim_" + str(params['latent_dim']) + "/beta_" + str(params[beta]) + \
+			str(params['dim_pix']) + "_latent_dim_" + str(params['latent_dim']) + "/beta_" + str(params['beta']) + \
 			"_fs_" + str(params['filter_size']) + "_alpha_iters_6000"
 
 	if not os.path.exists(DIR):
@@ -87,13 +87,13 @@ def get_checkpoint_path(log_file_path):
 				potential_checkpoints.append(f)
 
 		if len(potential_checkpoints) != 1:
-			raise ValueError("More that one potential checkpoints!!")
+			raise ValueError("{} potential checkpoints found!!".format(len(potential_checkpoints)))
 		else:
 			checkpoint = os.path.join(DIR, potential_checkpoints[0])
 			params['checkpoint'] = checkpoint
 
-		return "-L {num_layers} -fs {filter_size} -algo {algo} -dpx {dim_pix} -ldim {latent_dim} -beta {beta} -file_to_load {file_to_load}".format(**params)
-
+		return "-L {num_layers} -fs {filter_size} -algo {decoder_algorithm} -dpx {dim_pix} -ldim {latent_dim} -beta {beta} -file_to_load {checkpoint}".format(**params)
+	raise
 
 def get_all_evaluate_commands(log_folder):
 	commands = []
@@ -102,13 +102,16 @@ def get_all_evaluate_commands(log_folder):
 		if "python" in d:
 			for f in os.listdir(os.path.join(log_folder, d)):
 				if "out" in f:
-					curr_log = os.path.join(log_folder, d, f)
-					print curr_log
-					curr_params_str = get_checkpoint_path(curr_log)
-					curr_cmd = "python experiments/vae_pixel_2/mnist_with_beta_evaluate_latent.py {}".format(curr_params_str)
-					commands.append(curr_cmd)
+					try:
+						curr_log = os.path.join(log_folder, d, f)
+						print curr_log
+						curr_params_str = get_checkpoint_path(curr_log)
+						curr_cmd = "python experiments/vae_pixel_2/mnist_with_beta_evaluate_latent.py {}".format(curr_params_str)
+						commands.append(curr_cmd)
+					except:
+						pass
 
-	with open("evaluation_command.cmd", 'rb') as f:
+	with open("evaluation_command.cmd", 'wb') as f:
 		f.write("\n".join(commands))
 
 if __name__ == "__main__":
