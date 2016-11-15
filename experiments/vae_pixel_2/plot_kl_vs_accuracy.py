@@ -36,8 +36,8 @@ for d in os.listdir("LOGS"):
 					if "dim_pix_32" in ln:
 						dim_type = "dim_pix_32"
 
-					results[model_type][dim_type]["KL"].append(KL)
-					results[model_type][dim_type]["val"].append(valid_accuracy)
+				results[model_type][dim_type]["KL"].append(KL)
+				results[model_type][dim_type]["val"].append(valid_accuracy)
 
 
 plt.plot(results["VAE"]["dim_pix_16"]["KL"], results["VAE"]["dim_pix_16"]["val"], "r.-", label="VAE-16 dim")
