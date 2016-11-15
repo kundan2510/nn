@@ -36,6 +36,13 @@ for d in os.listdir("LOGS"):
 					if "dim_pix_32" in ln:
 						dim_type = "dim_pix_32"
 
+				assert(dim_type is not None)
+				assert(valid_accuracy is not None)
+				assert(KL is not None)
+				assert(model_type is not None)
+
+				print model_type, dim_type, KL, valid_accuracy
+
 				results[model_type][dim_type]["KL"].append(KL)
 				results[model_type][dim_type]["val"].append(valid_accuracy)
 
