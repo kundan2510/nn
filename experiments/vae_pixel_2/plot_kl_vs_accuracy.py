@@ -9,9 +9,9 @@ results["VAE"] = {"dim_pix_16": {"KL":[], "val":[]}, "dim_pix_32": {"KL":[], "va
 results["pixelVAE"] = {"dim_pix_16": {"KL":[], "val":[]}, "dim_pix_32": {"KL":[], "val":[]}}
 
 for d in os.listdir("LOGS"):
-	for f in os.path.join("LOGS", d):
+	for f in os.listdir(os.path.join("LOGS", d)):
 		if "out" in f:
-			current_log = os.path.joing("LOGS", d, f)
+			current_log = os.path.join("LOGS", d, f)
 			dim_type = None
 			KL = None
 			valid_accuracy = None
