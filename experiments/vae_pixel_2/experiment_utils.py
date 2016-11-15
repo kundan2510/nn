@@ -115,5 +115,5 @@ def get_all_evaluate_commands(log_folder):
 		f.write("\n".join(commands))
 
 if __name__ == "__main__":
-	get_all_evaluate_commands('LOGS')
+	get_all_evaluate_commands('LOGS_14th_Nov')
 
