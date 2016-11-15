@@ -1095,8 +1095,7 @@ train_data, dev_data, test_data = lib.mnist_stochastic_binarized.load(
 
 lib.load_params(args.file_to_load)
 
-val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data)
-print "Val accuracy is {}".format(val_accuracy)
+val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data, dimension = LATENT_DIM)
 
 reg_costs = []
 for (images, targets) in dev_data():
