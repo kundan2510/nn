@@ -1,4 +1,5 @@
 import os
+import numpy
 import matplotlib
 matplotlib.use("Agg")
 
@@ -46,6 +47,33 @@ for d in os.listdir("LOGS"):
 				results[model_type][dim_type]["KL"].append(KL)
 				results[model_type][dim_type]["val"].append(valid_accuracy)
 
+results["VAE"]["dim_pix_16"]["KL"] = numpy.array(results["VAE"]["dim_pix_16"]["KL"])
+results["VAE"]["dim_pix_16"]["val"] = numpy.array(results["VAE"]["dim_pix_16"]["val"])
+
+results["VAE"]["dim_pix_32"]["KL"] = numpy.array(results["VAE"]["dim_pix_32"]["KL"])
+results["VAE"]["dim_pix_32"]["val"] = numpy.array(results["VAE"]["dim_pix_32"]["val"])
+
+results["pixelVAE"]["dim_pix_16"]["KL"] = numpy.array(results["pixelVAE"]["dim_pix_16"]["KL"])
+results["pixelVAE"]["dim_pix_16"]["val"] = numpy.array(results["pixelVAE"]["dim_pix_16"]["val"])
+
+results["pixelVAE"]["dim_pix_32"]["KL"] = numpy.array(results["pixelVAE"]["dim_pix_32"]["KL"])
+results["pixelVAE"]["dim_pix_32"]["val"] = numpy.array(results["pixelVAE"]["dim_pix_32"]["val"])
+
+arrange_order = numpy.argsort(results["VAE"]["dim_pix_16"]["KL"])
+results["VAE"]["dim_pix_16"]["KL"] = results["VAE"]["dim_pix_16"]["KL"][arrange_order]
+results["VAE"]["dim_pix_16"]["val"] = results["VAE"]["dim_pix_16"]["val"][arrange_order]
+
+arrange_order = numpy.argsort(results["VAE"]["dim_pix_32"]["KL"])
+results["VAE"]["dim_pix_32"]["KL"] = results["VAE"]["dim_pix_32"]["KL"][arrange_order]
+results["VAE"]["dim_pix_32"]["val"] = results["VAE"]["dim_pix_32"]["val"][arrange_order]
+
+arrange_order = numpy.argsort(results["pixelVAE"]["dim_pix_16"]["KL"])
+results["pixelVAE"]["dim_pix_16"]["KL"] = results["pixelVAE"]["dim_pix_16"]["KL"][arrange_order]
+results["pixelVAE"]["dim_pix_16"]["val"] = results["pixelVAE"]["dim_pix_16"]["val"][arrange_order]
+
+arrange_order = numpy.argsort(results["pixelVAE"]["dim_pix_32"]["KL"])
+results["pixelVAE"]["dim_pix_32"]["KL"] = results["pixelVAE"]["dim_pix_32"]["KL"][arrange_order]
+results["pixelVAE"]["dim_pix_32"]["val"] = results["pixelVAE"]["dim_pix_32"]["val"][arrange_order]
 
 plt.plot(results["VAE"]["dim_pix_16"]["KL"], results["VAE"]["dim_pix_16"]["val"], "r.-", label="VAE-16 dim")
 plt.plot(results["VAE"]["dim_pix_32"]["KL"], results["VAE"]["dim_pix_32"]["val"], "g.-", label="VAE-64 dim")
