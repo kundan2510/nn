@@ -52,7 +52,7 @@ def train_svm(Encoder, train_data, evaluate_data , dimension = 16, **kwargs):
 	assert (i == 50000)
 
 	print "Training SVM....."
-	clf = SVC()
+	clf = SVC(max_iter = 700)
 	clf.fit(Z_train, Y_train)
 
 	print "Training accuracy : {}".format(clf.score(Z_train, Y_train))

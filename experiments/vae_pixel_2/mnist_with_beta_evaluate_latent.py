@@ -1042,7 +1042,7 @@ elif args.encoder == 'with_elu':
     encoder = Encoder_with_elu
 else:
     encoder = Encoder_complecated
-
+"""
 total_iters = T.iscalar('total_iters')
 images = T.tensor4('images') # shape: (batch size, n channels, height, width)
 
@@ -1087,22 +1087,28 @@ sample_fn = theano.function(
 get_reg_cost = theano.function([images], reg_cost.mean())
 
 encode_fn = theano.function([images], mu)
-
+"""
 train_data, dev_data, test_data = lib.mnist_stochastic_binarized.load(
     BATCH_SIZE,
     TEST_BATCH_SIZE
 )
 
-lib.load_params(args.file_to_load)
+#lib.load_params(args.file_to_load)
+random_project_mat = np.random.random((784, LATENT_DIM))
+
+def encode_fn(X):
+    X = X.reshape((X.shape[0], -1))
+    return np.dot(X, random_project_mat)
+
 
 val_accuracy  = lib.latent_train_utils.train_svm(encode_fn, train_data, dev_data, dimension = LATENT_DIM)
-
+"""
 reg_costs = []
 for (images, targets) in dev_data():
     reg_costs.append(get_reg_cost(images))
 
 print "KL cost is {}".format(np.mean(reg_costs))
-
+"""
 ######################## Debugging SVM ################
 
 
