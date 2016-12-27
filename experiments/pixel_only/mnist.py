@@ -2,8 +2,10 @@
 VAE + Pixel CNN
 Ishaan Gulrajani
 """
+
 """
-Usage: 
+Modified by Kundan Kumar
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/pixel_only/mnist.py -L 10 -F 5 
 """
 import os, sys
 sys.path.append(os.getcwd())
@@ -51,7 +53,7 @@ lib.ops.conv2d.enable_default_weightnorm()
 lib.ops.deconv2d.enable_default_weightnorm()
 lib.ops.linear.enable_default_weightnorm()
 
-OUT_DIR = '/Tmp/kumarkun/mnist_pixel_only' + "/layer_{}_fs_{}".format(args.num_pixel_cnn_layer, args.pixel_filter_size)
+OUT_DIR = '/Tmp/kumarkun/mnist_pixel_only_new' + "/layer_{}_fs_{}".format(args.num_pixel_cnn_layer, args.pixel_filter_size)
 
 if not os.path.isdir(OUT_DIR):
     os.makedirs(OUT_DIR)
@@ -65,7 +67,7 @@ DIM_PIX = 32
 PIXEL_CNN_FILTER_SIZE = args.pixel_filter_size
 PIXEL_CNN_LAYERS = args.num_pixel_cnn_layer
 
-LATENT_DIM = 64
+LATENT_DIM = 32
 ALPHA_ITERS = 10000
 VANILLA = False
 LR = 1e-3
@@ -76,7 +78,7 @@ HEIGHT = 28
 WIDTH = 28
 
 TEST_BATCH_SIZE = 100
-TIMES = ('iters', 1000, 2000*500, 1000, 200*500, 2*ALPHA_ITERS)
+TIMES = ('iters', 500, 2000*500, 1000, 200*500, 2*ALPHA_ITERS)
 
 lib.print_model_settings(locals().copy())
 
@@ -98,10 +100,11 @@ def PixCNN_condGate(x, z, dim, name = ""):
     b = b + Z_to_sigmoid[:,:,None, None]
     return T.tanh(a) * T.nnet.sigmoid(b)
 
-def next_stacks(X_v, X_h, inp_dim, name, 
-                global_conditioning = None, 
-                filter_size = 3, 
-                hstack = 'hstack', 
+
+def next_stacks(X_v, X_h, inp_dim, name,
+                global_conditioning = None,
+                filter_size = 3,
+                hstack = 'hstack',
                 residual = True
             ):
     zero_pad = T.zeros((X_v.shape[0], X_v.shape[1], 1, X_v.shape[3]))
@@ -109,40 +112,40 @@ def next_stacks(X_v, X_h, inp_dim, name,
     X_v_padded = T.concatenate([zero_pad, X_v], axis = 2)
 
     X_v_next = lib.ops.conv2d.Conv2D(
-            name + ".vstack", 
-            input_dim=inp_dim, 
-            output_dim=2*DIM_PIX, 
-            filter_size=filter_size, 
-            inputs=X_v_padded, 
+            name + ".vstack",
+            input_dim=inp_dim,
+            output_dim=2*DIM_PIX,
+            filter_size=filter_size,
+            inputs=X_v_padded,
             mask_type=('vstack', N_CHANNELS)
         )
 
     X_v_next_gated = PixCNNGate(X_v_next)
 
     X_v2h = lib.ops.conv2d.Conv2D(
-            name + ".v2h", 
-            input_dim=2*DIM_PIX, 
-            output_dim=2*DIM_PIX, 
-            filter_size=(1,1), 
+            name + ".v2h",
+            input_dim=2*DIM_PIX,
+            output_dim=2*DIM_PIX,
+            filter_size=(1,1),
             inputs=X_v_next[:,:,:-1,:]
         )
 
     X_h_next = lib.ops.conv2d.Conv2D(
-            name + '.hstack', 
-            input_dim= inp_dim, 
-            output_dim= 2*DIM_PIX, 
-            filter_size= (filter_size,filter_size), 
-            inputs= X_h, 
+            name + '.hstack',
+            input_dim= inp_dim,
+            output_dim= 2*DIM_PIX,
+            filter_size= (1,filter_size),
+            inputs= X_h,
             mask_type=(hstack, N_CHANNELS)
         )
 
     X_h_next = PixCNNGate(X_h_next + X_v2h)
 
     X_h_next = lib.ops.conv2d.Conv2D(
-            name + '.h2h', 
-            input_dim=DIM_PIX, 
-            output_dim=DIM_PIX, 
-            filter_size=(1,1), 
+            name + '.h2h',
+            input_dim=DIM_PIX,
+            output_dim=DIM_PIX,
+            filter_size=(1,1),
             inputs= X_h_next
             )
 
@@ -361,8 +364,8 @@ def get_every_layer_functions_only_h():
 
 # def auto_regress(shape):
 #     images = T.zeros(shape)
-# Decoder = Decoder_pixelCNN
-Decoder = Decoder_pixelCNN_single_stack
+Decoder = Decoder_pixelCNN
+# Decoder = Decoder_pixelCNN_single_stack
 
 total_iters = T.iscalar('total_iters')
 images = T.tensor4('images') # shape: (batch size, n channels, height, width)
@@ -373,7 +376,7 @@ reconst_cost = T.nnet.binary_crossentropy(
         Decoder(images).reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
     ),
     images.reshape((-1, N_CHANNELS*HEIGHT*WIDTH))
-).mean(axis=0).sum()
+).sum(axis=1).mean()
 
 cost = reconst_cost
 
@@ -601,6 +604,7 @@ def generate_and_save_samples(tag):
     # for (images,) in test_data():
     #     costs.append(eval_fn(images))
     # print "test cost: {}".format(np.mean(costs))
+    lib.save_params(os.path.join(OUT_DIR, tag + "_params.pkl"))
 
     def save_images(images, filename):
         """images.shape: (batch, n channels, height, width)"""
@@ -617,28 +621,33 @@ def generate_and_save_samples(tag):
         dtype=theano.config.floatX
     )
 
+    next_sample = samples.copy()
+
     t0 = time.time()
     for j in xrange(HEIGHT):
         for k in xrange(WIDTH):
             for i in xrange(N_CHANNELS):
-                next_sample = binarize(sample_fn(samples))
-                samples[:, i, j, k] = next_sample[:, i, j, k]
+                samples_p_value = sample_fn(next_sample)
+                next_sample[:,i,j,k] = binarize(samples_p_value)[:,i,j,k]
+                samples[:, i, j, k] = samples_p_value[:, i, j, k]
+
     t1 = time.time()
     save_images(samples, 'samples')
     print("Time taken with slowest generation is {:.4f}s".format(t1 - t0))
 
-    t0 = time.time()
-    samples =  faster_generation_only_h(layer_functions)
-    t1 = time.time()
-    print("Time taken with faster generation is {:.4f}s".format(t1 - t0))
+    # t0 = time.time()
+    # samples =  faster_generation_only_h(layer_functions)
+    # t1 = time.time()
+    # print("Time taken with faster generation is {:.4f}s".format(t1 - t0))
 
-    save_images(samples, 'samples_faster_generation')
+    # save_images(samples, 'samples_faster_generation')
 
     # samples = generate_with_only_receptive_field(samples)
     # save_images(samples, 'samples_receptive_field')
-
+# lib.load_params(os.path.join(OUT_DIR, 'iters15500_time30678.3401728_params.pkl'))
 generate_and_save_samples("initial_samples")
-
+# exit()
+print("Training..")
 
 lib.train_loop.train_loop(
     inputs=[images],

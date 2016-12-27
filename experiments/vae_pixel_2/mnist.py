@@ -7,7 +7,7 @@ Ishaan Gulrajani
 """
 Modified by Kundan Kumar
 
-Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 21 -fs 5 -algo upsample_z_conv -dpx 64 -ldim 64
+Usage: THEANO_FLAGS='mode=FAST_RUN,device=gpu0,floatX=float32,lib.cnmem=.95' python experiments/vae_pixel_2/mnist.py -L 2 -fs 5 -algo upsample_z_conv -dpx 32 -ldim 32
 """
 
 import os, sys
@@ -687,7 +687,7 @@ def Decoder_no_blind(latents, images):
     X_v, X_h = next_stacks(images_with_latent, images_with_latent, N_CHANNELS + DIM_1, "Dec.PixInput", filter_size = 7, hstack = "hstack_a", residual = False)
 
     for i in xrange(PIXEL_CNN_LAYERS):
-        X_v, X_h = next_stacks(X_v, X_h,  DIM_PIX, "Dec.Pix"+str(i+1), filter_size = 3)
+        X_v, X_h = next_stacks(X_v, X_h,  DIM_PIX, "Dec.Pix"+str(i+1), filter_size = PIXEL_CNN_FILTER_SIZE)
 
 
     output = PixCNNGate(lib.ops.conv2d.Conv2D('Dec.PixOut1', input_dim=DIM_PIX, output_dim=2*DIM_1, filter_size=1, inputs=X_h))
@@ -1157,7 +1157,7 @@ def generate_and_save_samples(tag):
     for (images,) in test_data():
         costs.append(eval_fn(images, ALPHA_ITERS+1))
     print "test cost: {}".format(np.mean(costs))
-    compute_importance_weighted_likelihood()
+    # compute_importance_weighted_likelihood()
     # return
     lib.save_params(os.path.join(OUT_DIR, tag + "_params.pkl"))
     def save_images(images, filename, i = None):
@@ -1177,8 +1177,8 @@ def generate_and_save_samples(tag):
         image = scipy.misc.toimage(images, cmin=0.0, cmax=1.0)
         image.save('{}/{}_{}.jpg'.format(OUT_DIR, filename, new_tag))
 
-    latents = np.random.normal(size=(10, LATENT_DIM))
-    latents = np.repeat(latents, 10, axis=0)
+    latents = np.random.normal(size=(100, LATENT_DIM))
+    # latents = np.repeat(latents, 10, axis=0)
 
     latents = latents.astype(theano.config.floatX)
 
@@ -1194,13 +1194,13 @@ def generate_and_save_samples(tag):
         for k in xrange(WIDTH):
             for i in xrange(N_CHANNELS):
                 samples_p_value = sample_fn(latents, next_sample)
-                next_sample = binarize(samples_p_value)
+                next_sample[:, i, j, k] = binarize(samples_p_value)[:, i, j, k]
                 samples[:, i, j, k] = samples_p_value[:, i, j, k]
 
     t1 = time.time()
     print("Time taken for generation normally {:.4f}".format(t1 - t0))
 
-    save_images(samples_p_value, 'samples_pval_repeated_')
+    save_images(samples_p_value, 'samples_for_reviewers_')
     # samples = np.zeros(
     #     (100, N_CHANNELS, HEIGHT, WIDTH),
     #     dtype=theano.config.floatX
@@ -1209,11 +1209,12 @@ def generate_and_save_samples(tag):
     # samples = generate_with_only_receptive_field(sample_fn, samples, latents)
     # save_images(samples, 'samples_pval_')
 
-lib.load_params(os.path.join(OUT_DIR, 'iters15500_time30678.3401728_params.pkl'))
-generate_and_save_samples("initial_Samples")
+# lib.load_params(os.path.join(OUT_DIR, 'iters51500_time6447.44720531_params.pkl'))
+generate_and_save_samples("initial_samples")
+# exit()
 
+# param_count = 668738 for -L 2 -fs 5 -algo upsample_z_conv -dpx 32 -ldim 32
 
-exit()
 print("Training")
 
 lib.train_loop.train_loop(
